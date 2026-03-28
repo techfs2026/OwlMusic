@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { Checkbox } from "antd";
+import { Checkbox, Tooltip } from "antd";
 import { CheckCircleFilled } from "@ant-design/icons";
 import clsx from "clsx";
 import { useWaveStore } from "@/lib/stores/waveStore";
 
-const STEP = 0.1; // seconds per click
+const STEP = 0.05; // seconds per click
 
 function TimeCell({
   value,
@@ -21,11 +21,11 @@ function TimeCell({
   const inc = () => onChange(parseFloat((value + STEP).toFixed(3)));
 
   return (
-    <div className="flex items-center justify-between w-full px-1">
+    <div className="flex items-center justify-center gap-0.5 px-1">
       <button
         onClick={dec}
         className={clsx(
-          "flex-shrink-0 w-6 h-6 rounded flex items-center justify-center text-sm font-bold",
+          "w-5 h-5 rounded flex items-center justify-center text-xs font-bold",
           "transition-colors select-none",
           active
             ? "text-blue-600 hover:bg-blue-100"
@@ -44,7 +44,7 @@ function TimeCell({
           if (!isNaN(v) && v >= 0) onChange(parseFloat(v.toFixed(3)));
         }}
         className={clsx(
-          "flex-1 min-w-0 text-center text-xs bg-transparent border-none outline-none",
+          "w-14 text-center text-xs bg-transparent border-none outline-none",
           "tabular-nums",
           active ? "text-blue-600 font-semibold" : "text-gray-500"
         )}
@@ -52,7 +52,7 @@ function TimeCell({
       <button
         onClick={inc}
         className={clsx(
-          "flex-shrink-0 w-6 h-6 rounded flex items-center justify-center text-sm font-bold",
+          "w-5 h-5 rounded flex items-center justify-center text-xs font-bold",
           "transition-colors select-none",
           active
             ? "text-blue-600 hover:bg-blue-100"
@@ -94,9 +94,6 @@ export function SubtitleList() {
 
   const verifiedCount = subtitles.filter((s) => s.is_verified).length;
 
-  // 列宽：序号 | 文本 | 起始 | 结束 | 校验
-  const GRID = "40px 1fr 150px 150px 44px";
-
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* header */}
@@ -118,7 +115,7 @@ export function SubtitleList() {
       <div
         className="grid text-[10px] font-bold text-[var(--text-3)] uppercase tracking-wider
                    border-b border-[var(--border)] bg-white sticky top-0 z-10"
-        style={{ gridTemplateColumns: GRID }}
+        style={{ gridTemplateColumns: "40px 1fr 136px 136px 40px" }}
       >
         <div className="flex items-center justify-center py-2.5">#</div>
         <div className="flex items-center py-2.5 pl-3">文本</div>
@@ -144,7 +141,7 @@ export function SubtitleList() {
                 isVerified && !isActive && "bg-[var(--verified-bg)]",
                 !isActive && !isVerified && "bg-white hover:bg-slate-50"
               )}
-              style={{ gridTemplateColumns: GRID }}
+              style={{ gridTemplateColumns: "40px 1fr 136px 136px 40px" }}
               onClick={() => setActiveIdx(i)}
             >
               {/* seq */}
@@ -173,11 +170,8 @@ export function SubtitleList() {
                 />
               </div>
 
-              {/* start_time */}
-              <div
-                className="border-r border-[var(--border)] flex items-center overflow-hidden"
-                onClick={(e) => e.stopPropagation()}
-              >
+              {/* start_time — ± buttons on sides */}
+              <div className="border-r border-[var(--border)] flex items-center" onClick={(e) => e.stopPropagation()}>
                 <TimeCell
                   value={sub.start_time}
                   active={isActive}
@@ -189,10 +183,7 @@ export function SubtitleList() {
               </div>
 
               {/* end_time */}
-              <div
-                className="border-r border-[var(--border)] flex items-center overflow-hidden"
-                onClick={(e) => e.stopPropagation()}
-              >
+              <div className="border-r border-[var(--border)] flex items-center" onClick={(e) => e.stopPropagation()}>
                 <TimeCell
                   value={sub.end_time}
                   active={isActive}
