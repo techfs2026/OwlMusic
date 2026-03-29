@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useEffect, useState } from "react";
+import { use, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Spin, Tooltip } from "antd";
 import { ArrowLeftOutlined } from "@ant-design/icons";
@@ -14,8 +14,8 @@ import { AudioPlayer } from "@/components/web/AudioPlayer";
 import { InputBox } from "@/components/web/InputBox";
 import { DiffResult } from "@/components/web/DiffResult";
 
-function getOrCreateSessionId(): string {
-  const key = "langlisten_session_id";
+function getOrCreateSessionId(materialId: number): string {
+  const key = `langlisten_session_${materialId}`;
   let id = localStorage.getItem(key);
   if (!id) { id = crypto.randomUUID(); localStorage.setItem(key, id); }
   return id;
@@ -44,12 +44,16 @@ export default function PracticePage({
   const [looping, setLooping] = useState(false);
   const [latestResult, setLatestResult] = useState<AttemptResult | null>(null);
 
+  // 防止 React StrictMode double-invoke 或 subtitleData 多次变化重复创建 session
+  const sessionCreatedRef = useRef(false);
+
   // init store + session once subtitles load
   useEffect(() => {
     if (!subtitleData?.subtitles.length) return;
-    const sid = getOrCreateSessionId();
+    const sid = getOrCreateSessionId(materialId);
     init(sid, materialId, subtitleData.subtitles);
-    // 问题1：500 不阻断练习，静默处理
+    if (sessionCreatedRef.current) return; // 已创建过，跳过
+    sessionCreatedRef.current = true;
     createSession.mutate(
       { session_id: sid, material_id: materialId },
       { onError: (e) => console.warn("[session] create failed, continuing:", e) }

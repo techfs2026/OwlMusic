@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Button, Tooltip } from "antd";
+import { Button, Tooltip, App } from "antd";
 import {
   PlayCircleOutlined, PauseCircleOutlined,
   StepBackwardOutlined, StepForwardOutlined, RetweetOutlined,
@@ -18,43 +18,56 @@ interface Props {
   subtitles: Subtitle[];
   currentIdx: number;
   looping: boolean;
-  canGoNext: boolean;           // 问题1：由父组件控制是否允许切下一句
+  canGoNext: boolean;
   onIdxChange: (idx: number) => void;
   onLoopingChange: (v: boolean) => void;
 }
 
-// 最小 pps 下限：低于此值波形太密，宁可让句子超出容器（可滚动）
-const MIN_PPS = 60;
-// 最大 pps 上限：短句不要拉得太稀疏
+const MIN_PPS = 40;
 const MAX_PPS = 400;
-// 两侧留给上下文的比例
-const CONTEXT_FRACTION = 0.18;
 
 /**
- * 计算让当前句铺满容器中间 (1-2*CONTEXT_FRACTION) 区域的 pps。
- * 钳制在 [MIN_PPS, MAX_PPS]，超长句宁可滚动也不压到 MIN_PPS 以下。
+ * 计算可见窗口，保证：左侧部分上一句 + 完整当前句 + 右侧部分下一句都在视野内。
+ *
+ * 策略：
+ *  - 左侧留白 = 当前句时长 * LEFT_PAD_RATIO（固定比例，展示上一句尾部）
+ *  - 右侧留白 = 当前句时长 * RIGHT_PAD_RATIO（固定比例，展示下一句头部）
+ *  - 用总范围 / 容器宽度 算出 pps，钳制在 [MIN_PPS, MAX_PPS]
+ *
+ * 注意：右侧留白只是视觉 padding，不需要真的延伸到下一句末尾。
  */
-function calcPps(sentenceDuration: number, containerWidth: number): number {
-  if (sentenceDuration <= 0 || containerWidth <= 0) return MIN_PPS;
-  const usable = containerWidth * (1 - 2 * CONTEXT_FRACTION);
-  const raw = usable / sentenceDuration;
-  return Math.min(MAX_PPS, Math.max(MIN_PPS, raw));
-}
+function calcViewWindow(
+  subtitles: Subtitle[],
+  idx: number,
+  containerWidth: number,
+): { pps: number; scrollTime: number } {
+  const cur = subtitles[idx];
+  if (!cur || containerWidth <= 0) return { pps: MIN_PPS, scrollTime: 0 };
 
-/**
- * 计算滚动偏移，让当前句从左侧 CONTEXT_FRACTION 处开始。
- * 左侧留出的像素 = containerWidth * CONTEXT_FRACTION，
- * 对应秒数 = 像素 / pps，从 start_time 往前偏移即可。
- */
-function calcScrollTime(sub: { start_time: number }, pps: number, containerWidth: number): number {
-  const leftPadSec = (containerWidth * CONTEXT_FRACTION) / pps;
-  return Math.max(0, sub.start_time - leftPadSec);
+  const curDur = Math.max(0.1, cur.end_time - cur.start_time);
+
+  // 左右各留当前句时长的 25% 作为上下文 padding
+  const LEFT_PAD_RATIO = 0.25;
+  const RIGHT_PAD_RATIO = 0.25;
+
+  const leftPad = curDur * LEFT_PAD_RATIO;
+  const rightPad = curDur * RIGHT_PAD_RATIO;
+
+  const viewStart = Math.max(0, cur.start_time - leftPad);
+  const viewEnd = cur.end_time + rightPad;
+  const rangeSeconds = viewEnd - viewStart;
+
+  const rawPps = containerWidth / rangeSeconds;
+  const pps = Math.min(MAX_PPS, Math.max(MIN_PPS, rawPps));
+
+  return { pps, scrollTime: viewStart };
 }
 
 export function AudioPlayer({
   audioUrl, subtitles, currentIdx, looping, canGoNext,
   onIdxChange, onLoopingChange,
 }: Props) {
+  const { message } = App.useApp();
   const containerRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WaveSurfer | null>(null);
   const regionsRef = useRef<RegionsPlugin | null>(null);
@@ -63,38 +76,30 @@ export function AudioPlayer({
   const sentenceEndPausedRef = useRef(false);
   const isSeekingRef = useRef(false);
   const canGoNextRef = useRef(canGoNext);
+  const subtitlesRef = useRef(subtitles);
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
-
   useEffect(() => { currentIdxRef.current = currentIdx; }, [currentIdx]);
   useEffect(() => { loopingRef.current = looping; }, [looping]);
   useEffect(() => { canGoNextRef.current = canGoNext; }, [canGoNext]);
+  useEffect(() => { subtitlesRef.current = subtitles; }, [subtitles]);
 
   const fmt = (s: number) =>
     `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
-  // ── 问题2：切句时重算缩放 + 精确滚动 ─────────────────────────────────────
+  // ── 切句时重算缩放窗口 ─────────────────────────────────────────────────────
   useEffect(() => {
-    const sub = subtitles[currentIdx];
     const ws = wsRef.current;
     const container = containerRef.current;
-    if (!sub || !ws || !container) return;
-
-    const duration = sub.end_time - sub.start_time;
-    const width = container.clientWidth;
-    const pps = calcPps(duration, width);
-    const scrollTime = calcScrollTime(sub, pps, width);
-
+    if (!ws || !container) return;
+    const { pps, scrollTime } = calcViewWindow(subtitles, currentIdx, container.clientWidth);
     ws.zoom(pps);
-    // zoom 是异步渲染，等一帧再滚动，避免旧 pps 下算出的偏移量
-    requestAnimationFrame(() => {
-      ws.setScrollTime(scrollTime);
-    });
+    requestAnimationFrame(() => ws.setScrollTime(scrollTime));
   }, [currentIdx, subtitles]);
 
-  // ── 统一跳转 ──────────────────────────────────────────────────────────────
+  // ── 统一跳转 ───────────────────────────────────────────────────────────────
   const jumpTo = useCallback((time: number, andPlay = false) => {
     const ws = wsRef.current;
     if (!ws) return;
@@ -110,7 +115,8 @@ export function AudioPlayer({
 
   // ── init WaveSurfer ────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!containerRef.current || subtitles.length === 0) return;
+    const container = containerRef.current;
+    if (!container || subtitles.length === 0) return;
 
     const regions = RegionsPlugin.create();
     const timeline = TimelinePlugin.create({
@@ -123,13 +129,10 @@ export function AudioPlayer({
       formatTimeCallback: (sec: number) => sec.toFixed(2) + "s",
     });
 
-    const firstSub = subtitles[currentIdxRef.current] ?? subtitles[0];
-    const initPps = containerRef.current
-      ? calcPps(firstSub.end_time - firstSub.start_time, containerRef.current.clientWidth)
-      : MIN_PPS;
+    const { pps: initPps } = calcViewWindow(subtitles, currentIdxRef.current, container.clientWidth);
 
     const ws = WaveSurfer.create({
-      container: containerRef.current,
+      container,
       waveColor: "#bfdbfe",
       progressColor: "#3b6ef8",
       cursorColor: "#1d4ed8",
@@ -137,6 +140,7 @@ export function AudioPlayer({
       height: 110,
       minPxPerSec: initPps,
       plugins: [regions, timeline, hover],
+      backend: "WebAudio",
       url: `${API_BASE}${audioUrl}`,
     });
 
@@ -146,14 +150,9 @@ export function AudioPlayer({
     ws.on("ready", () => {
       setDuration(ws.getDuration());
       renderAllRegions(regions, subtitles, currentIdxRef.current);
-      // ready 后触发一次缩放
-      const sub = subtitles[currentIdxRef.current];
-      const container = containerRef.current;
-      if (sub && container) {
-        const pps = calcPps(sub.end_time - sub.start_time, container.clientWidth);
-        ws.zoom(pps);
-        requestAnimationFrame(() => ws.setScrollTime(calcScrollTime(sub, pps, container.clientWidth)));
-      }
+      const { pps, scrollTime } = calcViewWindow(subtitles, currentIdxRef.current, container.clientWidth);
+      ws.zoom(pps);
+      requestAnimationFrame(() => ws.setScrollTime(scrollTime));
     });
 
     ws.on("play", () => { setIsPlaying(true); sentenceEndPausedRef.current = false; });
@@ -161,7 +160,7 @@ export function AudioPlayer({
     ws.on("finish", () => {
       setIsPlaying(false);
       if (loopingRef.current) {
-        const sub = subtitles[currentIdxRef.current];
+        const sub = subtitlesRef.current[currentIdxRef.current];
         if (sub) ws.play(sub.start_time);
       }
     });
@@ -170,41 +169,72 @@ export function AudioPlayer({
 
     ws.on("audioprocess", (t) => {
       if (isSeekingRef.current) return;
-      const sub = subtitles[currentIdxRef.current];
+      const sub = subtitlesRef.current[currentIdxRef.current];
       if (!sub) return;
 
       if (t >= sub.end_time - 0.05) {
+        isSeekingRef.current = true;
         if (loopingRef.current) {
-          isSeekingRef.current = true;
           ws.setTime(sub.start_time);
-          requestAnimationFrame(() => requestAnimationFrame(() => { isSeekingRef.current = false; }));
+          requestAnimationFrame(() => requestAnimationFrame(() => {
+            isSeekingRef.current = false;
+          }));
         } else {
           sentenceEndPausedRef.current = true;
-          isSeekingRef.current = true;
           ws.pause();
           ws.setTime(sub.start_time);
-          requestAnimationFrame(() => requestAnimationFrame(() => { isSeekingRef.current = false; }));
+          // 播放完后重新计算视口，确保显示：部分前一句 + 当前句 + 部分后一句
+          requestAnimationFrame(() => requestAnimationFrame(() => {
+            isSeekingRef.current = false;
+            const container = containerRef.current;
+            if (!container) return;
+            const { pps, scrollTime } = calcViewWindow(
+              subtitlesRef.current,
+              currentIdxRef.current,
+              container.clientWidth,
+            );
+            ws.zoom(pps);
+            requestAnimationFrame(() => ws.setScrollTime(scrollTime));
+          }));
         }
       }
     });
 
-    // 问题1：点击波形切句时，向后跳需要校验 canGoNext
-    ws.on("interaction", (t) => {
+    // ── 用 WaveSurfer interaction 事件处理点击 seek ──────────────────────
+    // interact: true 才能触发 interaction 事件，WS 自己算点击时间，不需要手动查 Shadow DOM
+    ws.on("interaction", (clickedTime: number) => {
       if (isSeekingRef.current) return;
-      const idx = subtitles.findIndex(s => t >= s.start_time && t <= s.end_time);
-      if (idx < 0) return;
-      // 向后跳：检查 canGoNext（通过 ref 读最新值）
-      if (idx > currentIdxRef.current && !canGoNextRef.current) return;
+
+      const subs = subtitlesRef.current;
+      const idx = subs.findIndex(
+        (s) => clickedTime >= s.start_time && clickedTime <= s.end_time
+      );
+
+      if (idx < 0) {
+        // 点在句间空白：只移动播放头，不切换当前句
+        jumpTo(clickedTime, false);
+        return;
+      }
+
+      if (idx > currentIdxRef.current && !canGoNextRef.current) {
+        message.warning({ content: "请先提交本句再继续", key: "no-next", duration: 2 });
+        // 把播放头拉回当前句起点，避免停在禁止区域
+        jumpTo(subs[currentIdxRef.current].start_time, false);
+        return;
+      }
+
       const wasPlaying = ws.isPlaying();
       currentIdxRef.current = idx;
       onIdxChange(idx);
-      jumpTo(subtitles[idx].start_time, wasPlaying);
+      jumpTo(subs[idx].start_time, wasPlaying);
     });
 
-    return () => { ws.destroy(); wsRef.current = null; };
+    return () => {
+      ws.destroy();
+      wsRef.current = null;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [audioUrl, subtitles]);
-
 
   // ── regions ────────────────────────────────────────────────────────────────
   const renderAllRegions = useCallback((
@@ -282,7 +312,6 @@ export function AudioPlayer({
           onClick={handlePlayPause}
         />
 
-        {/* 问题1：下一句按钮受 canGoNext 控制 */}
         <Tooltip title={!canGoNext ? "请先提交本句再继续" : "下一句 →"}>
           <Button size="small" shape="circle" icon={<StepForwardOutlined />}
             disabled={!canGoNext || currentIdx >= subtitles.length - 1}

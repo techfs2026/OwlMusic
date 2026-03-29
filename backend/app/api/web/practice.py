@@ -1,5 +1,7 @@
 import uuid as uuid_lib
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -19,14 +21,30 @@ async def create_session(
     payload: SessionCreate,
     db: AsyncSession = Depends(get_db),
 ):
-    session = PracticeSession(
-        session_id=uuid_lib.UUID(payload.session_id),
-        material_id=payload.material_id,
+    # 幂等：同一 session_id 重复请求时跳过 INSERT，直接返回已有记录
+    stmt = (
+        pg_insert(PracticeSession)
+        .values(
+            session_id=uuid_lib.UUID(payload.session_id),
+            material_id=payload.material_id,
+        )
+        .on_conflict_do_nothing(index_elements=["session_id"])
     )
-    db.add(session)
+    await db.execute(stmt)
     await db.commit()
-    await db.refresh(session)
-    return session
+
+    result = await db.execute(
+        select(PracticeSession).where(
+            PracticeSession.session_id == uuid_lib.UUID(payload.session_id)
+        )
+    )
+    session = result.scalar_one()
+    return SessionResponse(
+        id=session.id,
+        session_id=str(session.session_id),
+        material_id=session.material_id,
+        started_at=session.started_at,
+    )
 
 
 @router.post("/sessions/{session_id}/attempts",
