@@ -23,6 +23,7 @@ class MaterialListItem(BaseModel):
     status: str
     created_at: datetime
     audio_url: str
+    subtitle_count: int = 0
 
     model_config = {"from_attributes": True}
 

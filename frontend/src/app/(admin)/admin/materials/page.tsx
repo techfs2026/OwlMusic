@@ -75,7 +75,7 @@ export default function MaterialsPage() {
                     <div>
                         <button
                             className="text-[var(--text)] font-semibold text-sm hover:text-blue-600 transition-colors text-left"
-                            onClick={() => router.push(`/editor/${r.id}`)}
+                            onClick={() => router.push(`/admin/editor/${r.id}`)}
                         >
                             {v}
                         </button>
@@ -119,7 +119,7 @@ export default function MaterialsPage() {
                             type="primary"
                             ghost
                             icon={<EditOutlined />}
-                            onClick={() => router.push(`/editor/${r.id}`)}
+                            onClick={() => router.push(`/admin/editor/${r.id}`)}
                         />
                     </Tooltip>
                     <Popconfirm

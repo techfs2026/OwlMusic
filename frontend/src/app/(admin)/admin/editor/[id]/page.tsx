@@ -91,7 +91,7 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
                 <Button
                     icon={<ArrowLeftOutlined />}
                     type="text" size="small"
-                    onClick={() => router.push("/materials")}
+                    onClick={() => router.push("/admin/materials")}
                     className="!text-[var(--text-2)]"
                 />
 

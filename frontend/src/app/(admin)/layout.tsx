@@ -6,7 +6,7 @@ import { SoundOutlined, AppstoreOutlined } from "@ant-design/icons";
 import clsx from "clsx";
 
 const navItems = [
-    { href: "/materials", label: "素材管理", icon: AppstoreOutlined },
+    { href: "/admin/materials", label: "素材管理", icon: AppstoreOutlined },
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
