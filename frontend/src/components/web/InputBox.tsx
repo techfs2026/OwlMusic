@@ -15,14 +15,12 @@ export function InputBox({ onSubmit, loading, disabled, placeholder }: Props) {
   const [value, setValue] = useState("");
   const ref = useRef<HTMLTextAreaElement>(null);
 
-  useEffect(() => {
-    if (!disabled) ref.current?.focus();
-  }, [disabled]);
-
-  // reset on new sentence (disabled toggles)
+  // 切句时重置内容（key={currentIdx} 会重新挂载，这个 effect 其实不需要了，保留无害）
   useEffect(() => {
     setValue("");
   }, [disabled]);
+
+  // 不再自动 focus，避免切句时抢走焦点
 
   const submit = () => {
     const v = value.trim();

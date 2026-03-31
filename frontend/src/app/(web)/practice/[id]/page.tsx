@@ -43,8 +43,6 @@ export default function PracticePage({
 
   const [looping, setLooping] = useState(false);
   const [latestResult, setLatestResult] = useState<AttemptResult | null>(null);
-
-  // 防止 React StrictMode double-invoke 或 subtitleData 多次变化重复创建 session
   const sessionCreatedRef = useRef(false);
 
   // init store + session once subtitles load
@@ -52,39 +50,71 @@ export default function PracticePage({
     if (!subtitleData?.subtitles.length) return;
     const sid = getOrCreateSessionId(materialId);
     init(sid, materialId, subtitleData.subtitles);
-    if (sessionCreatedRef.current) return; // 已创建过，跳过
+    if (sessionCreatedRef.current) return;
     sessionCreatedRef.current = true;
     createSession.mutate(
       { session_id: sid, material_id: materialId },
-      { onError: (e) => console.warn("[session] create failed, continuing:", e) }
+      { onError: (e) => console.warn("[session] create failed:", e) }
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subtitleData]);
 
-  useEffect(() => {
-    setLatestResult(null);
-  }, [currentIdx]);
+  // clear diff on sentence change
+  useEffect(() => { setLatestResult(null); }, [currentIdx]);
 
   const handleSubmit = async (text: string) => {
     if (!subtitles[currentIdx]) return;
     const res = await submitAttempt.mutateAsync({
-      session_id: sessionId,
+      session_id:  sessionId,
       subtitle_id: subtitles[currentIdx].id,
-      user_input: text,
+      user_input:  text,
     });
     setLatestResult(res);
     recordAttempt(subtitles[currentIdx].id, res);
   };
 
-  // ── 问题4：当前句是否已提交过 ──────────────────────────────────────────────
-  const currentSub = subtitles[currentIdx];
+  const currentSub         = subtitles[currentIdx];
   const currentSubAttempted = currentSub ? !!attempts[currentSub.id] : false;
+  const canGoNext           = currentIdx < subtitles.length - 1 && currentSubAttempted;
+  const canGoPrev           = currentIdx > 0;
 
-  const handleNextIdx = (idx: number) => {
-    // 向前（上一句）始终允许；向后需已提交
+  const handleIdxChange = (idx: number) => {
     if (idx > currentIdx && !currentSubAttempted) return;
     setCurrentIdx(idx);
   };
+
+  // ── keyboard shortcuts ────────────────────────────────────────────────────
+  // Space → play/pause (via custom event to AudioPlayer)
+  // ← / → → prev / next sentence
+  // R     → toggle loop (via custom event to AudioPlayer)
+  // Enter in textarea → submit (handled by InputBox itself)
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const inInput = ["INPUT", "TEXTAREA"].includes(
+        (e.target as HTMLElement).tagName
+      );
+      if (inInput) return;
+
+      if (e.key === " ") {
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent("practice:playpause"));
+      }
+      if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        if (canGoPrev) handleIdxChange(currentIdx - 1);
+      }
+      if (e.key === "ArrowRight") {
+        e.preventDefault();
+        if (canGoNext) handleIdxChange(currentIdx + 1);
+      }
+      if (e.key === "r" || e.key === "R") {
+        window.dispatchEvent(new CustomEvent("practice:toggleloop"));
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentIdx, canGoPrev, canGoNext]);
 
   // ── loading ────────────────────────────────────────────────────────────────
   if (!subtitleData || !material) {
@@ -98,7 +128,7 @@ export default function PracticePage({
   if (subtitles.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-[60vh] gap-3"
-        style={{ color: "var(--text-3)" }}>
+           style={{ color: "var(--text-3)" }}>
         <span className="text-4xl">⚠️</span>
         <p className="text-sm">该素材暂无字幕数据</p>
       </div>
@@ -106,11 +136,9 @@ export default function PracticePage({
   }
 
   const doneCount = Object.keys(attempts).length;
-  const allDone = doneCount === subtitles.length;
-  const canGoNext = currentIdx < subtitles.length - 1 && currentSubAttempted;
+  const allDone   = doneCount === subtitles.length;
 
   return (
-    // 问题2：宽度从 max-w-2xl (672px) 改为 max-w-4xl (896px)
     <div className="w-4/5 mx-auto px-4 py-6 flex flex-col gap-5">
 
       {/* ── header ── */}
@@ -139,7 +167,7 @@ export default function PracticePage({
         />
       </div>
 
-      {/* ── zone 1: audio player ── */}
+      {/* ── zone 1: audio player + waveform ── */}
       <AudioPlayer
         audioUrl={material.audio_url}
         subtitles={subtitles}
@@ -167,22 +195,47 @@ export default function PracticePage({
           </span>
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex items-center gap-3">
+          {/* keyboard hints */}
+          <div className="hidden sm:flex items-center gap-2 mr-2">
+            {[
+              ["Space", "播放"],
+              ["← →", "切句"],
+              ["R", "循环"],
+            ].map(([k, v]) => (
+              <span key={k} className="text-xs flex items-center gap-1"
+                    style={{ color: "var(--text-3)" }}>
+                <kbd className="px-1.5 py-0.5 rounded text-[10px] font-mono"
+                     style={{ background: "var(--surface2)", border: "1px solid var(--border)" }}>
+                  {k}
+                </kbd>
+                {v}
+              </span>
+            ))}
+          </div>
+
           <Button
             size="small" type="text"
-            disabled={currentIdx <= 0}
-            onClick={() => handleNextIdx(currentIdx - 1)}
-            style={{ color: "var(--text-3)", fontSize: 12 }}
+            disabled={!canGoPrev}
+            onClick={() => handleIdxChange(currentIdx - 1)}
+            style={{
+              fontSize: 12,
+              // ← fix: blue when available, muted when not
+              color: canGoPrev ? "var(--accent)" : "var(--text-3)",
+            }}
           >
             ← 上一句
           </Button>
-          {/* 问题4：未提交时 next 按钮加 tooltip 提示 */}
+
           <Tooltip title={!currentSubAttempted ? "请先提交本句再继续" : ""}>
             <Button
               size="small" type="text"
               disabled={!canGoNext}
-              onClick={() => handleNextIdx(currentIdx + 1)}
-              style={{ color: canGoNext ? "var(--accent)" : "var(--text-3)", fontSize: 12 }}
+              onClick={() => handleIdxChange(currentIdx + 1)}
+              style={{
+                fontSize: 12,
+                color: canGoNext ? "var(--accent)" : "var(--text-3)",
+              }}
             >
               下一句 →
             </Button>
@@ -190,14 +243,14 @@ export default function PracticePage({
         </div>
       </div>
 
-      {/* ── zone 3: input ── */}
+      {/* ── zone 3: input (always visible) ── */}
       <InputBox
         onSubmit={handleSubmit}
         loading={submitAttempt.isPending}
         key={currentIdx}
       />
 
-      {/* ── diff result ── */}
+      {/* ── diff result (shown below input after submission) ── */}
       {latestResult && (
         <DiffResult
           diff={latestResult.diff}

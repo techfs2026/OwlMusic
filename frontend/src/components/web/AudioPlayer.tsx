@@ -77,6 +77,7 @@ export function AudioPlayer({
   const isSeekingRef = useRef(false);
   const canGoNextRef = useRef(canGoNext);
   const subtitlesRef = useRef(subtitles);
+  const onLoopingChangeRef = useRef(onLoopingChange);
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
@@ -85,6 +86,7 @@ export function AudioPlayer({
   useEffect(() => { loopingRef.current = looping; }, [looping]);
   useEffect(() => { canGoNextRef.current = canGoNext; }, [canGoNext]);
   useEffect(() => { subtitlesRef.current = subtitles; }, [subtitles]);
+  useEffect(() => { onLoopingChangeRef.current = onLoopingChange; }, [onLoopingChange]);
 
   const fmt = (s: number) =>
     `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
@@ -200,8 +202,7 @@ export function AudioPlayer({
       }
     });
 
-    // ── 用 WaveSurfer interaction 事件处理点击 seek ──────────────────────
-    // interact: true 才能触发 interaction 事件，WS 自己算点击时间，不需要手动查 Shadow DOM
+    // ── 用 WaveSurfer interaction 事件处理点击 seek ──────────────────────    // interact: true 才能触发 interaction 事件，WS 自己算点击时间，不需要手动查 Shadow DOM
     ws.on("interaction", (clickedTime: number) => {
       if (isSeekingRef.current) return;
 
@@ -289,6 +290,18 @@ export function AudioPlayer({
       ws.play();
     }
   }, [subtitles, jumpTo]);
+
+  // ── listen for keyboard events from page ──────────────────────────────────
+  useEffect(() => {
+    const onPlayPause = () => handlePlayPause();
+    const onToggleLoop = () => onLoopingChangeRef.current(!loopingRef.current);
+    window.addEventListener("practice:playpause", onPlayPause);
+    window.addEventListener("practice:toggleloop", onToggleLoop);
+    return () => {
+      window.removeEventListener("practice:playpause", onPlayPause);
+      window.removeEventListener("practice:toggleloop", onToggleLoop);
+    };
+  }, [handlePlayPause]);
 
   return (
     <div
