@@ -1,10 +1,13 @@
 from datetime import datetime
+from uuid import UUID
+
 from pydantic import BaseModel
 
 
 class SessionCreate(BaseModel):
-    session_id: str        # UUID from localStorage
+    session_id: str
     material_id: int
+    user_id: UUID | None = None   # 匿名用户 ID，由前端从 localStorage 传入
 
 
 class SessionResponse(BaseModel):
@@ -35,4 +38,4 @@ class AttemptResponse(BaseModel):
     is_correct: bool
     score: float
     diff: list[DiffTokenOut]
-    reference: str                   # correct subtitle text for display
+    reference: str

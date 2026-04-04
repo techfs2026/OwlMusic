@@ -1,10 +1,20 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { App } from "antd";
-import { SoundOutlined } from "@ant-design/icons";
+import { SoundOutlined, UserOutlined } from "@ant-design/icons";
+import { initIdentity } from "@/lib/api/identity";
 
 export default function WebLayout({ children }: { children: React.ReactNode }) {
+    const [username, setUsername] = useState<string | null>(null);
+
+    useEffect(() => {
+        initIdentity()
+            .then(({ username }) => setUsername(username))
+            .catch((e) => console.warn("[identity] init failed:", e));
+    }, []);
+
     return (
         <App>
             <div className="min-h-screen flex flex-col" style={{ background: "var(--bg)" }}>
@@ -22,6 +32,20 @@ export default function WebLayout({ children }: { children: React.ReactNode }) {
                             <p className="text-xs" style={{ color: "var(--text-3)" }}>精听训练</p>
                         </div>
                     </Link>
+
+                    {username && (
+                        <div className="ml-auto flex items-center gap-2">
+                            <div
+                                className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0"
+                                style={{ background: "var(--accent-light)" }}
+                            >
+                                <UserOutlined style={{ fontSize: 11, color: "var(--accent)" }} />
+                            </div>
+                            <span className="text-xs font-medium" style={{ color: "var(--text-2)" }}>
+                                {username}
+                            </span>
+                        </div>
+                    )}
                 </header>
                 <main className="flex-1">{children}</main>
             </div>

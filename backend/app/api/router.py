@@ -10,6 +10,7 @@ from app.api.web import materials as web_materials
 from app.api.web import practice as web_practice
 from app.api.web import ai as web_ai
 from app.api.web import stats as web_stats
+from app.api.web import users as web_users
 
 router = APIRouter()
 
@@ -31,6 +32,12 @@ router.include_router(
 )
 
 # ── web ───────────────────────────────────────────────────────────────────────
+router.include_router(
+    web_users.router,     
+    prefix="/api/web/users",     
+    tags=["web:users"],
+)
+
 router.include_router(
     web_materials.router,
     prefix="/api/web/materials",

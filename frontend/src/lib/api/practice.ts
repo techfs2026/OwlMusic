@@ -30,7 +30,7 @@ export function useWebSubtitles(materialId: number) {
 // ── session ───────────────────────────────────────────────────────────────────
 export function useCreateSession() {
     return useMutation({
-        mutationFn: async (payload: { session_id: string; material_id: number }) => {
+        mutationFn: async (payload: { session_id: string; material_id: number, user_id: string | undefined }) => {
             const res = await apiClient.post("/api/web/sessions", payload);
             return res.data;
         },

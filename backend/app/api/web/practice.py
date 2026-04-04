@@ -21,13 +21,20 @@ async def create_session(
     payload: SessionCreate,
     db: AsyncSession = Depends(get_db),
 ):
-    # 幂等：同一 session_id 重复请求时跳过 INSERT，直接返回已有记录
+    """
+    幂等：同一 session_id 重复请求时跳过 INSERT，直接返回已有记录。
+    同时写入 user_id，将练习 session 与匿名用户关联。
+    """
+    values: dict = dict(
+        session_id=uuid_lib.UUID(payload.session_id),
+        material_id=payload.material_id,
+    )
+    if payload.user_id is not None:
+        values["user_id"] = payload.user_id
+
     stmt = (
         pg_insert(PracticeSession)
-        .values(
-            session_id=uuid_lib.UUID(payload.session_id),
-            material_id=payload.material_id,
-        )
+        .values(**values)
         .on_conflict_do_nothing(index_elements=["session_id"])
     )
     await db.execute(stmt)

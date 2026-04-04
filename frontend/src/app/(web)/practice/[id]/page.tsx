@@ -13,6 +13,8 @@ import { usePracticeStore } from "@/lib/stores/practiceStore";
 import { AudioPlayer } from "@/components/web/AudioPlayer";
 import { InputBox } from "@/components/web/InputBox";
 import { DiffResult } from "@/components/web/DiffResult";
+import { getStoredUserId } from "@/lib/api/identity";
+
 
 function getOrCreateSessionId(materialId: number): string {
   const key = `langlisten_session_${materialId}`;
@@ -53,7 +55,7 @@ export default function PracticePage({
     if (sessionCreatedRef.current) return;
     sessionCreatedRef.current = true;
     createSession.mutate(
-      { session_id: sid, material_id: materialId },
+      { session_id: sid, material_id: materialId, user_id: getStoredUserId() ?? undefined, },
       { onError: (e) => console.warn("[session] create failed:", e) }
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
