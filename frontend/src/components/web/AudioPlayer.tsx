@@ -13,6 +13,7 @@ import TimelinePlugin from "wavesurfer.js/dist/plugins/timeline.js";
 import HoverPlugin from "wavesurfer.js/dist/plugins/hover.js";
 import { API_BASE } from "@/lib/api/client";
 import type { Subtitle } from "@/types";
+import type { AttemptResult } from "@/lib/api/practice";
 
 interface Props {
   audioUrl: string;
@@ -20,6 +21,7 @@ interface Props {
   currentIdx: number;
   looping: boolean;
   canGoNext: boolean;
+  attempts: Record<number, AttemptResult>;
   onIdxChange: (idx: number) => void;
   onLoopingChange: (v: boolean) => void;
 }
@@ -27,6 +29,23 @@ interface Props {
 const MIN_PPS = 40;
 const MAX_PPS = 400;
 const SPEEDS = [0.5, 0.75, 1.0];
+
+/** 根据句子状态返回 region 填充色 */
+function regionColor(i: number, activeIdx: number, attempts: Record<number, AttemptResult>, subtitleId: number): string {
+  const attempt = attempts[subtitleId] ?? attempts[String(subtitleId) as unknown as number];
+
+  if (i === activeIdx) {
+    // 当前句：在完成状态色基础上加深，未完成用明显蓝色
+    if (!attempt) return "rgba(59,110,248,0.45)";              // 未听+当前：亮蓝
+    if (attempt.score >= 0.85) return "rgba(22,163,74,0.50)";  // 高分+当前：亮绿
+    return "rgba(234,179,8,0.55)";                             // 低分+当前：亮琥珀
+  }
+
+  // 非当前句
+  if (!attempt) return "rgba(59,110,248,0.06)";                // 未听：极浅蓝
+  if (attempt.score >= 0.85) return "rgba(22,163,74,0.18)";   // 高分：浅绿
+  return "rgba(234,179,8,0.22)";                              // 低分：浅琥珀
+}
 
 function calcViewWindow(
   subtitles: Subtitle[],
@@ -51,7 +70,7 @@ function calcViewWindow(
 }
 
 export function AudioPlayer({
-  audioUrl, subtitles, currentIdx, looping, canGoNext,
+  audioUrl, subtitles, currentIdx, looping, canGoNext, attempts,
   onIdxChange, onLoopingChange,
 }: Props) {
   const { message } = App.useApp();
@@ -65,6 +84,7 @@ export function AudioPlayer({
   const canGoNextRef = useRef(canGoNext);
   const subtitlesRef = useRef(subtitles);
   const onLoopingChangeRef = useRef(onLoopingChange);
+  const attemptsRef = useRef(attempts);
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
@@ -76,6 +96,7 @@ export function AudioPlayer({
   useEffect(() => { canGoNextRef.current = canGoNext; }, [canGoNext]);
   useEffect(() => { subtitlesRef.current = subtitles; }, [subtitles]);
   useEffect(() => { onLoopingChangeRef.current = onLoopingChange; }, [onLoopingChange]);
+  useEffect(() => { attemptsRef.current = attempts; }, [attempts]);
 
   const fmt = (s: number) =>
     `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
@@ -246,10 +267,11 @@ export function AudioPlayer({
   ) => {
     regions.clearRegions();
     subs.forEach((sub, i) => {
+      const color = regionColor(i, activeIdx, attemptsRef.current, sub.id);
       regions.addRegion({
         id: `sub-${i}`,
         start: sub.start_time, end: sub.end_time,
-        color: i === activeIdx ? "rgba(59,110,248,0.22)" : "rgba(59,110,248,0.05)",
+        color,
         drag: false, resize: false,
       });
     });
@@ -258,15 +280,10 @@ export function AudioPlayer({
   useEffect(() => {
     const regions = regionsRef.current;
     if (!regions) return;
-    Object.values(regions.getRegions()).forEach((r) => {
-      const match = (r.id as string).match(/^sub-(\d+)$/);
-      if (!match) return;
-      r.setOptions({
-        color: parseInt(match[1], 10) === currentIdx
-          ? "rgba(59,110,248,0.22)" : "rgba(59,110,248,0.05)",
-      });
-    });
-  }, [currentIdx]);
+    const subs = subtitlesRef.current;
+    // 重新渲染所有 regions，确保颜色状态正确
+    renderAllRegions(regions, subs, currentIdx);
+  }, [currentIdx, attempts, renderAllRegions]);
 
   // ── 上/下一句 ─────────────────────────────────────────────────────────────
   const seekTo = useCallback((idx: number) => {

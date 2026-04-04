@@ -218,6 +218,7 @@ export default function PracticePage({
           currentIdx={currentIdx}
           looping={looping}
           canGoNext={canGoNext}
+          attempts={attempts}
           onIdxChange={setCurrentIdx}
           onLoopingChange={setLooping}
         />

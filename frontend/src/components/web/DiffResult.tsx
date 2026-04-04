@@ -88,11 +88,16 @@ export function DiffResult({ diff, score, reference, subtitle, onReplay }: Props
                 </span>
               );
             }
+            // missing — 蓝色虚线下划线，与红色对比明显
             return (
               <span
                 key={i}
                 className="italic"
-                style={{ color: "#d97706", borderBottom: "2px dashed #d97706", paddingBottom: "1px" }}
+                style={{
+                  color: "#3b6ef8",
+                  borderBottom: "2px dashed #3b6ef8",
+                  paddingBottom: "1px",
+                }}
               >
                 {t.word}
               </span>
@@ -112,7 +117,7 @@ export function DiffResult({ diff, score, reference, subtitle, onReplay }: Props
             <span style={{ color: "var(--text-3)" }}>多余</span>
           </span>
           <span className="text-xs flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: "#d97706" }} />
+            <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: "#3b6ef8" }} />
             <span style={{ color: "var(--text-3)" }}>遗漏</span>
           </span>
         </div>
