@@ -94,11 +94,11 @@ export default function PracticePage({
 
   const currentSub          = subtitles[currentIdx];
   const currentSubAttempted = currentSub ? !!attempts[currentSub.id] : false;
-  const canGoNext           = currentIdx < subtitles.length - 1 && currentSubAttempted;
+  const canGoNext           = currentIdx < subtitles.length - 1 && currentIdx <= maxPlaybackIdx - 1;
   const canGoPrev           = currentIdx > 0;
 
   const handleIdxChange = (idx: number) => {
-    if (idx > currentIdx && !currentSubAttempted) return;
+    if (idx > maxPlaybackIdx) return;
     setCurrentIdx(idx);
   };
 

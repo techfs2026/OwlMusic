@@ -25,7 +25,7 @@ export default function WebLayout({ children }: { children: React.ReactNode }) {
                     <Link href="/practice" className="flex items-center gap-2.5 no-underline">
                         <div className="w-8 h-8 rounded-lg flex items-center justify-center"
                             style={{ background: "var(--accent)" }}>
-                            <SoundOutlined className="text-white text-base" />
+                            <SoundOutlined style={{ color: "#ffffff", fontSize: 14 }} />
                         </div>
                         <div>
                             <p className="font-bold text-sm leading-tight" style={{ color: "var(--text)" }}>LangListen</p>

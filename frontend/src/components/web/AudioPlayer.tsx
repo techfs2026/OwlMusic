@@ -315,7 +315,7 @@ export function AudioPlayer({
     const sub = subs[idx];
     if (!sub) return;
     if (idx > maxPlaybackIdxRef.current) {
-      message.warning({ content: "请先提交本句再继续", key: "no-next", duration: 2 });
+      message.warning({ content: "还没听到这里，请继续往前听", key: "no-next", duration: 2 });
       return;
     }
     seekTo(idx);

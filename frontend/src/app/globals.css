@@ -23,15 +23,12 @@
   box-sizing: border-box;
 }
 
-html {
-  font-size: 20px; /* rem 基准，影响所有 Tailwind text-* 类 */
-}
-
 body {
   background: var(--bg);
   color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   -webkit-font-smoothing: antialiased;
+  font-size: 18px;
 }
 
 /* subtle scrollbar */
@@ -53,7 +50,12 @@ body {
   background: #9baece;
 }
 
-/* remove number input arrows globally */
+/* 修复 Next.js Link 默认颜色覆盖内部图标颜色 */
+a .text-white,
+a span.text-white {
+  color: #ffffff !important;
+}
+
 input[type=number]::-webkit-inner-spin-button,
 input[type=number]::-webkit-outer-spin-button {
   -webkit-appearance: none;

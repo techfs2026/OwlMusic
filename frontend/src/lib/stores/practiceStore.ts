@@ -69,12 +69,13 @@ export const usePracticeStore = create<PracticeState>((set, get) => ({
     },
 
     setCurrentIdx: (currentIdx) => {
-        const { maxPlaybackIdx } = get();
-        set({ maxPlaybackIdx: Math.max(currentIdx, maxPlaybackIdx) });
-        const safeIdx = Math.min(currentIdx, Math.max(0, maxPlaybackIdx));
-        set({ currentIdx: safeIdx });
-        const { materialId, attempts } = get();
-        if (materialId !== null) saveProgress(materialId, currentIdx, maxPlaybackIdx, attempts);
+        set((s) => ({
+            currentIdx,
+            maxPlaybackIdx: Math.max(currentIdx, s.maxPlaybackIdx),
+        }));
+        const { materialId, attempts, maxPlaybackIdx } = get();
+        const newMax = Math.max(currentIdx, maxPlaybackIdx);
+        if (materialId !== null) saveProgress(materialId, currentIdx, newMax, attempts);
     },
 
     setInputVisible: (inputVisible) => set({ inputVisible }),
