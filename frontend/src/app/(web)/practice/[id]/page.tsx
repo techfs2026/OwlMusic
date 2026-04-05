@@ -37,7 +37,7 @@ export default function PracticePage({
   const { data: subtitleData } = useWebSubtitles(materialId);
 
   const {
-    init, sessionId, subtitles, currentIdx, attempts,
+    init, sessionId, subtitles, currentIdx, maxPlaybackIdx, attempts,
     setCurrentIdx, recordAttempt,
   } = usePracticeStore();
 
@@ -219,6 +219,8 @@ export default function PracticePage({
           looping={looping}
           canGoNext={canGoNext}
           attempts={attempts}
+          currentAttempted={currentSubAttempted}
+          maxPlaybackIdx={maxPlaybackIdx}
           onIdxChange={setCurrentIdx}
           onLoopingChange={setLooping}
         />

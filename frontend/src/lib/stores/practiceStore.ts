@@ -7,6 +7,7 @@ interface PracticeState {
     materialId: number | null;
     subtitles: Subtitle[];
     currentIdx: number;
+    maxPlaybackIdx: number;
     attempts: Record<number, AttemptResult>;    // subtitle_id → result
     inputVisible: boolean;
 
@@ -24,22 +25,22 @@ function progressKey(materialId: number) {
     return `langlisten_progress_${materialId}`;
 }
 
-function saveProgress(materialId: number, currentIdx: number, attempts: Record<number, AttemptResult>) {
+function saveProgress(materialId: number, currentIdx: number, maxPlaybackIdx: number, attempts: Record<number, AttemptResult>) {
     try {
-        localStorage.setItem(progressKey(materialId), JSON.stringify({ currentIdx, attempts }));
+        localStorage.setItem(progressKey(materialId), JSON.stringify({ currentIdx, maxPlaybackIdx, attempts }));
     } catch {
         // localStorage 写满时静默失败
     }
 }
 
-function loadProgress(materialId: number): { currentIdx: number; attempts: Record<number, AttemptResult> } {
+function loadProgress(materialId: number): { currentIdx: number; maxPlaybackIdx: number; attempts: Record<number, AttemptResult> } {
     try {
         const raw = localStorage.getItem(progressKey(materialId));
         if (raw) return JSON.parse(raw);
     } catch {
         // 解析失败时忽略
     }
-    return { currentIdx: 0, attempts: {} };
+    return { currentIdx: 0, maxPlaybackIdx: 0, attempts: {} };
 }
 
 function clearProgress(materialId: number) {
@@ -55,21 +56,25 @@ export const usePracticeStore = create<PracticeState>((set, get) => ({
     materialId: null,
     subtitles: [],
     currentIdx: 0,
+    maxPlaybackIdx: 0,
     attempts: {},
     inputVisible: false,
 
     init: (sessionId, materialId, subtitles) => {
         // 从 localStorage 恢复进度
-        const { currentIdx, attempts } = loadProgress(materialId);
+        const { currentIdx, maxPlaybackIdx, attempts } = loadProgress(materialId);
         // 确保恢复的 idx 没有超出字幕范围
         const safeIdx = Math.min(currentIdx, Math.max(0, subtitles.length - 1));
-        set({ sessionId, materialId, subtitles, currentIdx: safeIdx, attempts, inputVisible: false });
+        set({ sessionId, materialId, subtitles, currentIdx: safeIdx, maxPlaybackIdx, attempts, inputVisible: false });
     },
 
     setCurrentIdx: (currentIdx) => {
-        set({ currentIdx });
+        const { maxPlaybackIdx } = get();
+        set({ maxPlaybackIdx: Math.max(currentIdx, maxPlaybackIdx) });
+        const safeIdx = Math.min(currentIdx, Math.max(0, maxPlaybackIdx));
+        set({ currentIdx: safeIdx });
         const { materialId, attempts } = get();
-        if (materialId !== null) saveProgress(materialId, currentIdx, attempts);
+        if (materialId !== null) saveProgress(materialId, currentIdx, maxPlaybackIdx, attempts);
     },
 
     setInputVisible: (inputVisible) => set({ inputVisible }),
@@ -77,13 +82,13 @@ export const usePracticeStore = create<PracticeState>((set, get) => ({
     recordAttempt: (subtitleId, result) => {
         const attempts = { ...get().attempts, [subtitleId]: result };
         set({ attempts });
-        const { materialId, currentIdx } = get();
-        if (materialId !== null) saveProgress(materialId, currentIdx, attempts);
+        const { materialId, currentIdx, maxPlaybackIdx } = get();
+        if (materialId !== null) saveProgress(materialId, currentIdx, maxPlaybackIdx, attempts);
     },
 
     reset: () => {
         const { materialId } = get();
         if (materialId !== null) clearProgress(materialId);
-        set({ sessionId: "", materialId: null, subtitles: [], currentIdx: 0, attempts: {}, inputVisible: false });
+        set({ sessionId: "", materialId: null, subtitles: [], currentIdx: 0, maxPlaybackIdx: 0, attempts: {}, inputVisible: false });
     },
 }));

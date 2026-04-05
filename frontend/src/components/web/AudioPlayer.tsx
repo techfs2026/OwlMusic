@@ -5,7 +5,6 @@ import { Button, Tooltip, App } from "antd";
 import {
   PlayCircleOutlined, PauseCircleOutlined,
   StepBackwardOutlined, StepForwardOutlined, RetweetOutlined,
-  DashboardOutlined,
 } from "@ant-design/icons";
 import WaveSurfer from "wavesurfer.js";
 import RegionsPlugin from "wavesurfer.js/dist/plugins/regions.js";
@@ -19,8 +18,10 @@ interface Props {
   audioUrl: string;
   subtitles: Subtitle[];
   currentIdx: number;
+  maxPlaybackIdx: number;
   looping: boolean;
   canGoNext: boolean;
+  currentAttempted: boolean;
   attempts: Record<number, AttemptResult>;
   onIdxChange: (idx: number) => void;
   onLoopingChange: (v: boolean) => void;
@@ -30,21 +31,17 @@ const MIN_PPS = 40;
 const MAX_PPS = 400;
 const SPEEDS = [0.5, 0.75, 1.0];
 
-/** 根据句子状态返回 region 填充色 */
-function regionColor(i: number, activeIdx: number, attempts: Record<number, AttemptResult>, subtitleId: number): string {
+/** 根据句子状态返回色条颜色 */
+function barColor(i: number, activeIdx: number, attempts: Record<number, AttemptResult>, subtitleId: number): string {
   const attempt = attempts[subtitleId] ?? attempts[String(subtitleId) as unknown as number];
-
   if (i === activeIdx) {
-    // 当前句：在完成状态色基础上加深，未完成用明显蓝色
-    if (!attempt) return "rgba(59,110,248,0.45)";              // 未听+当前：亮蓝
-    if (attempt.score >= 0.85) return "rgba(22,163,74,0.50)";  // 高分+当前：亮绿
-    return "rgba(234,179,8,0.55)";                             // 低分+当前：亮琥珀
+    if (!attempt) return "#93c5fd";               // 当前未听：浅蓝
+    if (attempt.score >= 0.85) return "#4ade80";  // 当前高分：绿
+    return "#fbbf24";                             // 当前低分：琥珀
   }
-
-  // 非当前句
-  if (!attempt) return "rgba(59,110,248,0.06)";                // 未听：极浅蓝
-  if (attempt.score >= 0.85) return "rgba(22,163,74,0.18)";   // 高分：浅绿
-  return "rgba(234,179,8,0.22)";                              // 低分：浅琥珀
+  if (!attempt) return "#bfdbfe";                 // 未听：浅蓝
+  if (attempt.score >= 0.85) return "#bbf7d0";    // 高分：浅绿
+  return "#fde68a";                               // 低分：浅琥珀
 }
 
 function calcViewWindow(
@@ -70,7 +67,7 @@ function calcViewWindow(
 }
 
 export function AudioPlayer({
-  audioUrl, subtitles, currentIdx, looping, canGoNext, attempts,
+  audioUrl, subtitles, currentIdx, maxPlaybackIdx, looping, canGoNext, currentAttempted, attempts,
   onIdxChange, onLoopingChange,
 }: Props) {
   const { message } = App.useApp();
@@ -78,10 +75,12 @@ export function AudioPlayer({
   const wsRef = useRef<WaveSurfer | null>(null);
   const regionsRef = useRef<RegionsPlugin | null>(null);
   const currentIdxRef = useRef(currentIdx);
+  const maxPlaybackIdxRef = useRef(maxPlaybackIdx);
   const loopingRef = useRef(looping);
   const sentenceEndPausedRef = useRef(false);
   const isSeekingRef = useRef(false);
   const canGoNextRef = useRef(canGoNext);
+  const currentAttemptedRef = useRef(currentAttempted);
   const subtitlesRef = useRef(subtitles);
   const onLoopingChangeRef = useRef(onLoopingChange);
   const attemptsRef = useRef(attempts);
@@ -94,6 +93,7 @@ export function AudioPlayer({
   useEffect(() => { currentIdxRef.current = currentIdx; }, [currentIdx]);
   useEffect(() => { loopingRef.current = looping; }, [looping]);
   useEffect(() => { canGoNextRef.current = canGoNext; }, [canGoNext]);
+  useEffect(() => { currentAttemptedRef.current = currentAttempted; }, [currentAttempted]);
   useEffect(() => { subtitlesRef.current = subtitles; }, [subtitles]);
   useEffect(() => { onLoopingChangeRef.current = onLoopingChange; }, [onLoopingChange]);
   useEffect(() => { attemptsRef.current = attempts; }, [attempts]);
@@ -127,7 +127,7 @@ export function AudioPlayer({
     const { pps, scrollTime } = calcViewWindow(subtitlesRef.current, currentIdx, container.clientWidth);
     ws.zoom(pps);
     requestAnimationFrame(() => ws.setScrollTime(scrollTime));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentIdx]);
 
   // ── 统一跳转 ───────────────────────────────────────────────────────────────
@@ -152,7 +152,8 @@ export function AudioPlayer({
     const regions = RegionsPlugin.create();
     const timeline = TimelinePlugin.create({
       height: 18, timeInterval: 1, primaryLabelInterval: 5,
-      style: { fontSize: "10px", color: "#94a3b8" },
+      insertPosition: "beforebegin",
+      style: { fontSize: "11px", color: "#94a3b8" },
     });
     const hover = HoverPlugin.create({
       lineColor: "#3b6ef8", lineWidth: 1,
@@ -168,7 +169,7 @@ export function AudioPlayer({
       progressColor: "#3b6ef8",
       cursorColor: "#1d4ed8",
       cursorWidth: 2,
-      height: 110,
+      height: 130,
       minPxPerSec: initPps,
       plugins: [regions, timeline, hover],
       url: `${API_BASE}${audioUrl}`,
@@ -183,6 +184,15 @@ export function AudioPlayer({
       const { pps, scrollTime } = calcViewWindow(subtitles, currentIdxRef.current, container.clientWidth);
       ws.zoom(pps);
       requestAnimationFrame(() => ws.setScrollTime(scrollTime));
+
+      // 隐藏 Shadow DOM 内的横向滚动条
+      requestAnimationFrame(() => {
+        const shadow = container.querySelector("div")?.shadowRoot;
+        if (!shadow) return;
+        const style = document.createElement("style");
+        style.textContent = `::-webkit-scrollbar { display: none; } * { scrollbar-width: none; }`;
+        shadow.appendChild(style);
+      });
     });
 
     ws.on("play", () => { setIsPlaying(true); sentenceEndPausedRef.current = false; });
@@ -242,7 +252,7 @@ export function AudioPlayer({
         return;
       }
 
-      if (idx > currentIdxRef.current && !canGoNextRef.current) {
+      if (idx > currentIdxRef.current && !currentAttemptedRef.current) {
         message.warning({ content: "请先提交本句再继续", key: "no-next", duration: 2 });
         jumpTo(subs[currentIdxRef.current].start_time, false);
         return;
@@ -267,12 +277,16 @@ export function AudioPlayer({
   ) => {
     regions.clearRegions();
     subs.forEach((sub, i) => {
-      const color = regionColor(i, activeIdx, attemptsRef.current, sub.id);
+      const isActive = i === activeIdx;
       regions.addRegion({
         id: `sub-${i}`,
         start: sub.start_time, end: sub.end_time,
-        color,
+        color: isActive ? "rgba(147,197,253,0.12)" : "rgba(0,0,0,0)",
         drag: false, resize: false,
+        ...(isActive && {
+          borderLeftColor: "#93c5fd",
+          borderRightColor: "#93c5fd",
+        }),
       });
     });
   }, []);
@@ -294,6 +308,18 @@ export function AudioPlayer({
     onIdxChange(idx);
     jumpTo(sub.start_time, wasPlaying);
   }, [subtitles, onIdxChange, jumpTo]);
+
+  // 统一跳句入口：已做过的句子随时可跳，未做过且在当前句之后则不可跳
+  const handleSeekTo = useCallback((idx: number) => {
+    const subs = subtitlesRef.current;
+    const sub = subs[idx];
+    if (!sub) return;
+    if (idx > maxPlaybackIdxRef.current) {
+      message.warning({ content: "请先提交本句再继续", key: "no-next", duration: 2 });
+      return;
+    }
+    seekTo(idx);
+  }, [seekTo, message]);
 
   // ── 播放/暂停 ─────────────────────────────────────────────────────────────
   const handlePlayPause = useCallback(() => {
@@ -346,7 +372,7 @@ export function AudioPlayer({
         <Tooltip title="上一句 ←">
           <Button size="small" shape="circle" icon={<StepBackwardOutlined />}
             disabled={currentIdx <= 0}
-            onClick={() => seekTo(currentIdx - 1)} />
+            onClick={() => handleSeekTo(currentIdx - 1)} />
         </Tooltip>
 
         <Button
@@ -361,25 +387,23 @@ export function AudioPlayer({
         <Tooltip title={!canGoNext ? "请先提交本句再继续" : "下一句 →"}>
           <Button size="small" shape="circle" icon={<StepForwardOutlined />}
             disabled={!canGoNext || currentIdx >= subtitles.length - 1}
-            onClick={() => seekTo(currentIdx + 1)} />
+            onClick={() => handleSeekTo(currentIdx + 1)} />
         </Tooltip>
 
-        <Tooltip title="循环当前句">
-          <Button size="small" icon={<RetweetOutlined />}
+        <Tooltip title={looping ? "关闭循环 R" : "循环当前句 R"}>
+          <Button size="small" shape="circle" icon={<RetweetOutlined />}
             type={looping ? "primary" : "default"}
-            onClick={() => onLoopingChange(!looping)}>
-            循环
-          </Button>
+            onClick={() => onLoopingChange(!looping)}
+          />
         </Tooltip>
 
         {/* 速度切换：点击循环 0.5x → 0.75x → 1x */}
-        <Tooltip title="切换播放速度">
+        <Tooltip title={`播放速度：${speedLabel}（点击切换）`}>
           <Button
             size="small"
-            icon={<DashboardOutlined />}
             type={speedIsSlowed ? "primary" : "default"}
             onClick={handleSpeedChange}
-            style={{ minWidth: 56, fontVariantNumeric: "tabular-nums" }}
+            style={{ minWidth: 44, fontVariantNumeric: "tabular-nums", fontSize: 12 }}
           >
             {speedLabel}
           </Button>
@@ -393,9 +417,69 @@ export function AudioPlayer({
         </span>
       </div>
 
-      <div style={{ background: "var(--surface2)", padding: "8px 8px 4px" }}>
-        <div ref={containerRef} />
+      <div style={{ background: "var(--surface2)", padding: "8px 8px 0" }}>
+        <style>{`
+          #waveform-wrap ::-webkit-scrollbar { display: none; }
+          #waveform-wrap { scrollbar-width: none; }
+        `}</style>
+        <div id="waveform-wrap" ref={containerRef} />
       </div>
+
+      {/* ── 句子色条 ── */}
+      {duration > 0 && (
+        <div
+          className="relative mx-2 mb-3"
+          style={{ height: 20, background: "transparent", overflow: "visible" }}
+        >
+          {subtitles.map((sub, i) => {
+            const left = (sub.start_time / duration) * 100;
+            const width = ((sub.end_time - sub.start_time) / duration) * 100;
+            const color = barColor(i, currentIdx, attempts, sub.id);
+            const isActive = i === currentIdx;
+            const isLocked = i > maxPlaybackIdx;
+            const tooltipTitle = isLocked
+              ? "请先提交本句再继续"
+              : `第 ${i + 1} 句`;
+            return (
+              <Tooltip key={sub.id} title={tooltipTitle} placement="top">
+                <div
+                  onClick={() => handleSeekTo(i)}
+                  style={{
+                    position: "absolute",
+                    left: `${left}%`,
+                    width: `${Math.max(width, 0.5)}%`,
+                    // 色块垂直居中在 20px 容器里，高度 12px
+                    top: "50%",
+                    height: 12,
+                    transform: "translateY(-50%)",
+                    background: color,
+                    borderRadius: 2,
+                    transition: "background 0.3s",
+                    zIndex: isActive ? 2 : 0,
+                    cursor: isLocked ? "not-allowed" : "pointer",
+                    opacity: isLocked ? 0.4 : 1,
+                  }}
+                >
+                  {/* 当前句小三角指示器，放在色块下方 */}
+                  {isActive && (
+                    <div style={{
+                      position: "absolute",
+                      bottom: -7,
+                      left: "50%",
+                      transform: "translateX(-50%)",
+                      width: 0,
+                      height: 0,
+                      borderLeft: "4px solid transparent",
+                      borderRight: "4px solid transparent",
+                      borderBottom: `5px solid ${color}`,
+                    }} />
+                  )}
+                </div>
+              </Tooltip>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
