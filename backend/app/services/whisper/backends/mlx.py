@@ -50,23 +50,10 @@ class MlxBackend(WhisperBackend):
     def name(self) -> str:
         return "mlx+stable-ts" if self._stable_available else "mlx"
 
-    def transcribe_raw(
-        self,
-        wav_path: str,
-        language: str,
-        offset_sec: float = 0.0,
-    ) -> list[Word]:
+    def transcribe_raw(self, wav_path: str, language: str) -> list[Word]:
         if self._stable_available:
-            words = self._transcribe_stable(wav_path, language)
-        else:
-            words = self._transcribe_raw(wav_path, language)
-
-        if offset_sec:
-            for w in words:
-                w.start = float(round(w.start + offset_sec, 3))
-                w.end   = float(round(w.end   + offset_sec, 3))
-
-        return words
+            return self._transcribe_stable(wav_path, language)
+        return self._transcribe_raw(wav_path, language)
 
     # ── stable-ts path ────────────────────────────────────────────────────────
 

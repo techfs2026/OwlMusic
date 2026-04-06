@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { Checkbox, Tooltip, Button } from "antd";
-import { CheckCircleFilled, CheckSquareOutlined, BorderOutlined } from "@ant-design/icons";
+import { CheckSquareOutlined, BorderOutlined } from "@ant-design/icons";
 import clsx from "clsx";
 import { useWaveStore } from "@/lib/stores/waveStore";
 
@@ -205,10 +205,9 @@ export function SubtitleList() {
                 )}
                 onClick={(e) => handleSeqClick(e, i)}
               >
-                {isVerified
-                  ? <CheckCircleFilled className="text-green-500 text-xs" />
-                  : i + 1
-                }
+                <span className={isVerified ? "text-green-500 font-bold" : ""}>
+                  {i + 1}
+                </span>
               </div>
 
               {/* text */}

@@ -55,24 +55,14 @@ class FasterWhisperBackend(WhisperBackend):
         suffix = "+stable-ts" if self._use_stable else ""
         return f"faster_whisper{suffix}"
 
-    def transcribe_raw(
-        self,
-        wav_path: str,
-        language: str,
-        offset_sec: float = 0.0,
-    ) -> list[Word]:
+    def transcribe_raw(self, wav_path: str, language: str) -> list[Word]:
         if self._use_stable:
-            return self._transcribe_stable(wav_path, language, offset_sec)
-        return self._transcribe_fallback(wav_path, language, offset_sec)
+            return self._transcribe_stable(wav_path, language)
+        return self._transcribe_fallback(wav_path, language)
 
     # ── stable-ts path ────────────────────────────────────────────────────────
 
-    def _transcribe_stable(
-        self,
-        wav_path: str,
-        language: str,
-        offset_sec: float,
-    ) -> list[Word]:
+    def _transcribe_stable(self, wav_path: str, language: str) -> list[Word]:
         """
         stable-ts refine pipeline:
           1. transcribe_stable() runs the normal Whisper decode pass
@@ -96,20 +86,15 @@ class FasterWhisperBackend(WhisperBackend):
             for w in seg.words:
                 words.append(Word(
                     word=w.word,
-                    start=float(round(w.start + offset_sec, 3)),
-                    end=float(round(w.end + offset_sec, 3)),
+                    start=float(round(w.start, 3)),
+                    end=float(round(w.end, 3)),
                     probability=float(round(getattr(w, "probability", 1.0), 4)),
                 ))
         return words
 
     # ── raw faster-whisper fallback ───────────────────────────────────────────
 
-    def _transcribe_fallback(
-        self,
-        wav_path: str,
-        language: str,
-        offset_sec: float,
-    ) -> list[Word]:
+    def _transcribe_fallback(self, wav_path: str, language: str) -> list[Word]:
         segments_iter, _ = self._model.transcribe(
             wav_path,
             language=language,
@@ -132,8 +117,8 @@ class FasterWhisperBackend(WhisperBackend):
             for w in seg.words:
                 words.append(Word(
                     word=w.word,
-                    start=float(round(w.start + offset_sec, 3)),
-                    end=float(round(w.end + offset_sec, 3)),
+                    start=float(round(w.start, 3)),
+                    end=float(round(w.end, 3)),
                     probability=float(round(w.probability, 4)),
                 ))
         return words

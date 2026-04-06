@@ -5,33 +5,17 @@ Detection order:
   1. Apple Silicon (Darwin + arm64) → MlxBackend
   2. NVIDIA GPU available           → FasterWhisperBackend(device=cuda)
   3. Fallback                       → FasterWhisperBackend(device=cpu)
-
-VAD pipeline:
-  SileroVAD detects speech segments, then merge_segments() consolidates
-  them into chunks ≤ vad_max_chunk_sec (default 25s).
-
-  Merging into larger chunks (vs. keeping 48 tiny segments) means Whisper
-  always has enough context to complete sentences — fixing the boundary
-  truncation issue where words like "Good morning, World" were being cut
-  off at the end of a short VAD slice.
-
-  VAD still provides value: long silences are skipped entirely, reducing
-  hallucinations on quiet sections.
 """
 
 from __future__ import annotations
 
-import os
 import logging
 import platform
-import subprocess
-import tempfile
 from typing import Callable
 
 from .models import Word, TranscribedSegment
 from .splitter import SentenceSplitter
 from .backends.base import WhisperBackend
-from .vad import SileroVAD, SpeechSegment, merge_segments
 
 logger = logging.getLogger(__name__)
 
@@ -40,11 +24,7 @@ ProgressCallback = Callable[[int, int, str], None]
 
 # ── backend auto-detection ────────────────────────────────────────────────────
 
-def _detect_backend(
-    model_size: str,
-    device: str,
-    compute_type: str,
-) -> WhisperBackend:
+def _detect_backend(model_size: str, device: str, compute_type: str) -> WhisperBackend:
     system = platform.system()
     machine = platform.machine()
 
@@ -86,44 +66,15 @@ def _has_cuda() -> bool:
         return False
 
 
-# ── audio slicing ─────────────────────────────────────────────────────────────
-
-def _extract_segment_wav(
-    src_wav: str,
-    start_sec: float,
-    end_sec: float,
-    tmp_dir: str,
-    idx: int,
-) -> str:
-    out_path = os.path.join(tmp_dir, f"seg_{idx:04d}.wav")
-    cmd = [
-        "ffmpeg", "-y", "-loglevel", "error",
-        "-i", src_wav,
-        "-ss", str(start_sec),
-        "-to", str(end_sec),
-        "-ar", "16000", "-ac", "1",
-        out_path,
-    ]
-    result = subprocess.run(cmd, capture_output=True)
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"ffmpeg slice failed for [{start_sec}-{end_sec}]: "
-            f"{result.stderr.decode()}"
-        )
-    return out_path
-
-
 # ── main class ────────────────────────────────────────────────────────────────
 
 class WhisperTranscriber:
     """
-    Platform-agnostic transcriber with Silero VAD pre-processing.
+    Platform-agnostic transcriber. Auto-selects the best backend.
 
     Usage:
         t = WhisperTranscriber(model_size="medium")
         segments = t.transcribe("audio.wav", language="en")
-
-    Set use_vad=False to skip VAD and transcribe the full file at once.
     """
 
     def __init__(
@@ -134,17 +85,6 @@ class WhisperTranscriber:
         max_seg_sec: float = 12.0,
         soft_break_sec: float = 6.0,
         min_seg_sec: float = 0.5,
-        # VAD params
-        use_vad: bool = False,
-        vad_threshold: float = 0.4,
-        vad_min_speech_ms: int = 300,
-        vad_min_silence_ms: int = 500,
-        vad_speech_pad_ms: int = 200,
-        # Max duration per chunk sent to Whisper.
-        # Larger = more context for Whisper (fewer cut sentences).
-        # Smaller = less memory per chunk.
-        # 25s is safe: Whisper's window is 30s, leaving 5s headroom.
-        vad_max_chunk_sec: float = 25.0,
     ) -> None:
         self._backend = _detect_backend(model_size, device, compute_type)
         self._splitter = SentenceSplitter(
@@ -152,26 +92,9 @@ class WhisperTranscriber:
             soft_break_sec=soft_break_sec,
             min_seg_sec=min_seg_sec,
         )
-        self._use_vad = use_vad
-        self._vad_max_chunk_sec = vad_max_chunk_sec
-
-        if use_vad:
-            self._vad = SileroVAD(
-                threshold=vad_threshold,
-                min_speech_ms=vad_min_speech_ms,
-                min_silence_ms=vad_min_silence_ms,
-                speech_pad_ms=vad_speech_pad_ms,
-            )
-        else:
-            self._vad = None
-
         logger.info(
-            f"[Transcriber] Ready. "
-            f"backend={self._backend.name} model={model_size} "
-            f"vad={'on' if use_vad else 'off'}"
+            f"[Transcriber] Ready. backend={self._backend.name} model={model_size}"
         )
-
-    # ── public API ────────────────────────────────────────────────────────────
 
     def transcribe(
         self,
@@ -180,45 +103,19 @@ class WhisperTranscriber:
         on_progress: ProgressCallback | None = None,
     ) -> list[TranscribedSegment]:
 
-        total_steps = 4 if self._use_vad else 3
-
         if on_progress:
-            on_progress(0, total_steps, "开始转写...")
+            on_progress(0, 3, "开始转写...")
 
-        # ── Step 1: VAD ───────────────────────────────────────────────────────
-        if self._use_vad:
-            raw_segments = self._vad.detect(wav_path)
-
-            # Merge short adjacent segments into chunks ≤ vad_max_chunk_sec.
-            # This prevents sentence truncation at VAD boundaries: instead of
-            # 48 tiny slices, Whisper receives a handful of 10-25s chunks with
-            # enough context to complete each sentence naturally.
-            speech_segments = merge_segments(raw_segments, max_duration=self._vad_max_chunk_sec)
-
-            logger.info(
-                f"[Transcriber] VAD: {len(raw_segments)} raw → "
-                f"{len(speech_segments)} merged chunk(s) "
-                f"(max {self._vad_max_chunk_sec}s each)."
-            )
-            if on_progress:
-                on_progress(1, total_steps, f"VAD 检测到 {len(speech_segments)} 段语音")
-        else:
-            speech_segments = None
-
-        # ── Step 2: transcription ─────────────────────────────────────────────
+        # Step 1: backend transcription
         if on_progress:
-            step = 2 if self._use_vad else 1
-            on_progress(step, total_steps, "转写中...")
+            on_progress(1, 3, "转写中...")
 
-        all_words: list[Word] = self._run_transcription(
-            wav_path, language, speech_segments
-        )
+        all_words: list[Word] = self._backend.transcribe_raw(wav_path, language)
         logger.info(f"[Transcriber] {len(all_words)} words collected.")
 
-        # ── Step 3: sentence splitting ────────────────────────────────────────
+        # Step 2: reassemble into sentences
         if on_progress:
-            step = 3 if self._use_vad else 2
-            on_progress(step, total_steps, "分句处理中...")
+            on_progress(2, 3, "分句处理中...")
 
         segments = self._splitter.split(all_words)
         for idx, seg in enumerate(segments):
@@ -229,48 +126,6 @@ class WhisperTranscriber:
         )
 
         if on_progress:
-            on_progress(total_steps, total_steps, f"完成，共 {len(segments)} 句")
+            on_progress(3, 3, f"完成，共 {len(segments)} 句")
 
         return segments
-
-    # ── private ───────────────────────────────────────────────────────────────
-
-    def _run_transcription(
-        self,
-        wav_path: str,
-        language: str,
-        speech_segments: list[SpeechSegment] | None,
-    ) -> list[Word]:
-        if speech_segments is None:
-            return self._backend.transcribe_raw(wav_path, language, offset_sec=0.0)
-
-        if not speech_segments:
-            logger.warning("[Transcriber] VAD returned empty — transcribing full file as fallback.")
-            return self._backend.transcribe_raw(wav_path, language, offset_sec=0.0)
-
-        all_words: list[Word] = []
-
-        with tempfile.TemporaryDirectory(prefix="whisper_vad_") as tmp_dir:
-            for idx, (start_sec, end_sec) in enumerate(speech_segments):
-                logger.debug(
-                    f"[Transcriber] Chunk {idx+1}/{len(speech_segments)}: "
-                    f"{start_sec:.3f}s – {end_sec:.3f}s "
-                    f"({end_sec - start_sec:.1f}s)"
-                )
-                try:
-                    seg_wav = _extract_segment_wav(
-                        wav_path, start_sec, end_sec, tmp_dir, idx
-                    )
-                    words = self._backend.transcribe_raw(
-                        seg_wav,
-                        language,
-                        offset_sec=start_sec,
-                    )
-                    all_words.extend(words)
-                except Exception as exc:
-                    logger.error(
-                        f"[Transcriber] Chunk {idx} ({start_sec:.3f}-{end_sec:.3f}) "
-                        f"failed: {exc}. Skipping."
-                    )
-
-        return all_words
