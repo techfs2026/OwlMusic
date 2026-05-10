@@ -1,11 +1,14 @@
 .vscode
 .idea
 
-__pycache__
+node_modules/
 
-uploads/
+dist/
+target/
+src-tauri/gen/
+
 logs/
 
-*.pyc
-.env
-*/.DS_Store
+.DS_Store
+
+Design.md
