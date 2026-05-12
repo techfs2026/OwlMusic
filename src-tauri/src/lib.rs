@@ -37,6 +37,7 @@ pub fn run() {
             commands::get_state,
             commands::get_spectrum,
             commands::scan_folder,
+            commands::get_spectrum_config,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

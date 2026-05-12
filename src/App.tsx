@@ -4,7 +4,7 @@ import Cassette from "./components/Cassette";
 import SpectrumGL from "./components/SpectrumGL";
 import Icon from "./components/Icon";
 import { api, ScannedTrack, TrackMetadata } from "./lib/api";
-import { fmtTime, parseName, trim } from "./lib/utils";
+import { fmtTime, parseName } from "./lib/utils";
 
 interface PlaylistItem {
   path: string;
@@ -29,6 +29,12 @@ export default function App() {
 
   const [bars, setBars] = useState<number[]>(() => new Array(48).fill(0));
   const [error, setError] = useState<string | null>(null);
+
+  const [specCfg, setSpecCfg] = useState<{
+    bars: number;
+    fMin: number;
+    fMax: number;
+  } | null>(null);
 
   const [loadProgress, setLoadProgress] = useState<{
     cur: number;
@@ -75,8 +81,14 @@ export default function App() {
 
   // ── Track loading (ref-stored so closures over playlist stay fresh) ──────
   const loadAtRef = useRef<(idx: number, list?: PlaylistItem[]) => Promise<void>>(
-    async () => {},
+    async () => { },
   );
+  useEffect(() => {
+    if (!currentTrack) return;
+    api.getSpectrumConfig().then((c) =>
+      setSpecCfg({ bars: c.bars, fMin: c.f_min_hz, fMax: c.f_max_hz })
+    ).catch(() => { });
+  }, [currentTrack]);
   useEffect(() => {
     loadAtRef.current = async (idx: number, list?: PlaylistItem[]) => {
       const useList = list ?? playlist;
@@ -109,7 +121,7 @@ export default function App() {
         if (!seekDragRef.current && s.duration_secs > 0) {
           setSeekValue(Math.floor((s.position_secs / s.duration_secs) * 1000));
         }
-      } catch {}
+      } catch { }
     }, STATE_POLL_MS);
     return () => window.clearInterval(id);
   }, []);
@@ -118,7 +130,7 @@ export default function App() {
     const id = window.setInterval(async () => {
       try {
         setBars(await api.getSpectrum());
-      } catch {}
+      } catch { }
     }, SPEC_POLL_MS);
     return () => window.clearInterval(id);
   }, []);
@@ -225,7 +237,7 @@ export default function App() {
 
   const handlePrev = useCallback(() => {
     if (playlist.length > 1) loadAtRef.current(plIndex - 1);
-    else if (currentTrack) api.seek(0).catch(() => {});
+    else if (currentTrack) api.seek(0).catch(() => { });
   }, [playlist.length, plIndex, currentTrack]);
 
   const handleNext = useCallback(() => {
@@ -244,14 +256,18 @@ export default function App() {
 
   const handleVolume = useCallback((v: number) => {
     setVolume(v);
-    api.setVolume(v).catch(() => {});
+    api.setVolume(v).catch(() => { });
   }, []);
+
+  const fmtHz = (hz: number) =>
+    hz >= 1000 ? `${(hz / 1000).toFixed(hz >= 10000 ? 0 : 1)}kHz` : `${Math.round(hz)}Hz`;
+
 
   return (
     <div id="app">
       {/* TOP BAR */}
       <div id="topbar">
-        <span className="brand">MUSE</span>
+        <span className="brand">MusicOwl</span>
         <span className="ver">v0.1</span>
         <div style={{ flex: 1 }} />
         {playlist.length > 0 && (
@@ -281,7 +297,11 @@ export default function App() {
 
         <div id="spectrum-area">
           <div id="spec-header">
-            <span>SPECTRUM · 48 BANDS · 40Hz – 20kHz</span>
+            <span>
+              SPECTRUM · {specCfg?.bars ?? bars.length} BANDS · {
+                specCfg ? `${fmtHz(specCfg.fMin)} – ${fmtHz(specCfg.fMax)}` : "—"
+              }
+            </span>
             <span>{dbReadout}</span>
           </div>
           <div id="spec-wrap">
@@ -299,11 +319,10 @@ export default function App() {
               id="prog-bar"
               style={{
                 width: loadProgress
-                  ? `${
-                      loadProgress.tot > 0
-                        ? Math.round((loadProgress.cur / loadProgress.tot) * 100)
-                        : 0
-                    }%`
+                  ? `${loadProgress.tot > 0
+                    ? Math.round((loadProgress.cur / loadProgress.tot) * 100)
+                    : 0
+                  }%`
                   : "0%",
               }}
             />
@@ -316,29 +335,6 @@ export default function App() {
 
       {/* BOTTOM: playlist + controls */}
       <div id="bottom">
-        <div id="pl-strip" className={playlist.length > 0 ? "show" : ""}>
-          <span className="label">TRACK</span>
-          <span id="pl-track-name">
-            {currentTrack ? trim(display.title, 64) : "—"}
-          </span>
-          <span id="pl-count">
-            {playlist.length ? `${plIndex + 1} / ${playlist.length}` : "0 / 0"}
-          </span>
-          <button
-            className="pl-nav"
-            onClick={handlePrev}
-            disabled={playlist.length < 2}
-          >
-            ‹
-          </button>
-          <button
-            className="pl-nav"
-            onClick={handleNext}
-            disabled={playlist.length < 2}
-          >
-            ›
-          </button>
-        </div>
 
         <div id="controls">
           <button

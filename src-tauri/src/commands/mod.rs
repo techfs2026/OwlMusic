@@ -148,3 +148,22 @@ pub async fn scan_folder(path: String) -> Result<Vec<ScannedTrack>, String> {
     out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     Ok(out)
 }
+
+#[derive(Serialize)]
+pub struct SpectrumConfig {
+    pub bars: usize,
+    pub f_min_hz: f32,
+    pub f_max_hz: f32,  // 实际是当前曲目的 nyquist
+    pub sample_rate: u32,
+}
+
+#[tauri::command]
+pub fn get_spectrum_config(state: State<'_, AppState>) -> SpectrumConfig {
+    let sr = state.player.lock().sample_rate();
+    SpectrumConfig {
+        bars: crate::audio::spectrum::SPECTRUM_BARS,
+        f_min_hz: 40.0,
+        f_max_hz: (sr as f32 / 2.0),
+        sample_rate: sr,
+    }
+}

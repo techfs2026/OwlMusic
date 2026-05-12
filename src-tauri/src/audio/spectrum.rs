@@ -17,6 +17,8 @@ pub const FFT_SIZE: usize = 2048;
 pub const SPECTRUM_BARS: usize = 48;
 const RING_CAP: usize = 8192;
 
+pub const F_MIN_HZ: f32 = 40.0;
+
 /// dBFS floor for visualization. Anything below this maps to 0.
 const DB_FLOOR: f32 = -90.0;
 /// dBFS ceiling — at this level a bar reaches 1.0.
@@ -99,7 +101,12 @@ impl SpectrumFft {
 
     /// Fills `bars` with values in 0..1 from current ring buffer; `sample_rate` for log band mapping.
     /// Values reflect true loudness — quiet passages stay low, loud bursts go high.
-    pub fn compute_bars(&mut self, ring: &SpectrumRing, sample_rate: u32, bars: &mut [f32; SPECTRUM_BARS]) {
+    pub fn compute_bars(
+        &mut self,
+        ring: &SpectrumRing,
+        sample_rate: u32,
+        bars: &mut [f32; SPECTRUM_BARS],
+    ) {
         bars.fill(0.0);
         if !ring.copy_last(&mut self.windowed) {
             return;
@@ -110,7 +117,11 @@ impl SpectrumFft {
             self.windowed[i] *= self.window[i];
         }
 
-        if self.r2c.process(&mut self.windowed, &mut self.spectrum).is_err() {
+        if self
+            .r2c
+            .process(&mut self.windowed, &mut self.spectrum)
+            .is_err()
+        {
             return;
         }
 
@@ -118,7 +129,7 @@ impl SpectrumFft {
         let nyquist = sr * 0.5;
         let fft_len = n as f64;
         let half = self.spectrum.len();
-        const F_MIN: f64 = 40.0;
+        let f_min = F_MIN_HZ as f64;
 
         // Convert complex bins to magnitude in absolute amplitude (peak-equivalent).
         let mut mags = vec![0.0f32; half];
@@ -134,8 +145,8 @@ impl SpectrumFft {
         let db_range = DB_CEIL - DB_FLOOR; // typically 90
 
         for b in 0..SPECTRUM_BARS {
-            let f_lo = F_MIN * (nyquist / F_MIN).powf(b as f64 / SPECTRUM_BARS as f64);
-            let f_hi = F_MIN * (nyquist / F_MIN).powf((b + 1) as f64 / SPECTRUM_BARS as f64);
+            let f_lo = f_min * (nyquist / f_min).powf(b as f64 / SPECTRUM_BARS as f64);
+            let f_hi = f_min * (nyquist / f_min).powf((b + 1) as f64 / SPECTRUM_BARS as f64);
             let bin_lo = ((f_lo * fft_len) / sr).floor() as usize;
             let bin_hi = ((f_hi * fft_len) / sr).ceil() as usize;
             let bin_lo = bin_lo.min(half.saturating_sub(1));
