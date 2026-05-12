@@ -32,6 +32,8 @@ parking_lot = "0.12"
 cpal = "0.17.3"
 lofty = "0.24.0"
 symphonia = "0.5.5"
+realfft = "3.4"
+rustfft = "6.2"
 
 [profile.release]
 opt-level = 3
