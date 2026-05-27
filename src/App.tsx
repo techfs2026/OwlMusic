@@ -2,8 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import Cassette from "./components/Cassette";
 import SpectrumGL from "./components/SpectrumGL";
+import LyricsView from "./components/LyricsView";
 import Icon from "./components/Icon";
-import { api, ScannedTrack, TrackInfo, TrackMetadata } from "./lib/api";
+import { api, LyricLine, ScannedTrack, TrackInfo, TrackMetadata } from "./lib/api";
 import { fmtTime, parseName } from "./lib/utils";
 
 interface PlaylistItem {
@@ -15,7 +16,6 @@ interface PlaylistItem {
   artist: string | null;
 }
 
-const AUDIO_EXTS = /\.(mp3|m4a|ogg|wav|flac|aac|opus|weba|webm)$/i;
 const STATE_POLL_MS = 200;
 const SPEC_POLL_MS = 33;
 
@@ -54,6 +54,14 @@ export default function App() {
   const playlistRef = useRef<PlaylistItem[]>([]);
   const plIndexRef = useRef(0);
   const wasPlayingRef = useRef(false);
+
+  // Lyrics + view toggle. `userPickedView` is true once the user has manually
+  // toggled in this session — until then we auto-select based on whether the
+  // current track has an .lrc. After that, we respect the user's choice and
+  // simply fall back to spectrum on tracks without lyrics.
+  const [lyrics, setLyrics] = useState<LyricLine[]>([]);
+  const [view, setView] = useState<"spectrum" | "lyrics">("spectrum");
+  const userPickedViewRef = useRef(false);
 
   useEffect(() => {
     playlistRef.current = playlist;
@@ -112,6 +120,21 @@ export default function App() {
         setPosition(0);
         setSeekValue(0);
         setPlaying(true);
+
+        // Load lyrics (soft-fails to []). Auto-switch the view until the user
+        // expresses a preference: lyrics if present, otherwise spectrum.
+        try {
+          const ly = await api.readLyrics(t.path);
+          console.log(`[lyrics] ${t.path} → ${ly.length} lines`);
+          setLyrics(ly);
+          if (!userPickedViewRef.current) {
+            setView(ly.length > 0 ? "lyrics" : "spectrum");
+          }
+        } catch (err) {
+          console.error("[lyrics] read_lyrics failed:", err);
+          setLyrics([]);
+          if (!userPickedViewRef.current) setView("spectrum");
+        }
       } catch (e) {
         setError(`无法播放该文件: ${e}`);
       }
@@ -157,41 +180,6 @@ export default function App() {
   }, []);
 
   // ── Actions ───────────────────────────────────────────────────────────────
-  const handleOpenFiles = useCallback(async () => {
-    try {
-      const selected = await openDialog({
-        multiple: true,
-        filters: [
-          {
-            name: "Audio",
-            extensions: ["mp3", "m4a", "ogg", "wav", "flac", "aac", "opus", "weba", "webm"],
-          },
-        ],
-      });
-      if (!selected) return;
-      const paths = Array.isArray(selected) ? selected : [selected];
-      const items: PlaylistItem[] = paths
-        .filter((p) => AUDIO_EXTS.test(p))
-        .map((p) => {
-          const name = p.split(/[\\/]/).pop() || p;
-          const parsed = parseName(name);
-          return { path: p, name, title: parsed.title, artist: parsed.artist };
-        });
-      if (!items.length) {
-        setError("没有找到音频文件");
-        return;
-      }
-      items.sort((a, b) =>
-        a.name.localeCompare(b.name, undefined, { numeric: true }),
-      );
-      setPlaylist(items);
-      setPlIndex(0);
-      setTimeout(() => loadAtRef.current(0, items), 0);
-    } catch (e) {
-      setError(`${e}`);
-    }
-  }, []);
-
   const handleOpenFolder = useCallback(async () => {
     try {
       const selected = await openDialog({ directory: true, multiple: false });
@@ -242,7 +230,7 @@ export default function App() {
 
   const handlePlayPause = useCallback(async () => {
     if (!currentTrack) {
-      await handleOpenFiles();
+      await handleOpenFolder();
       return;
     }
     try {
@@ -256,7 +244,7 @@ export default function App() {
     } catch (e) {
       setError(`${e}`);
     }
-  }, [playing, currentTrack, handleOpenFiles]);
+  }, [playing, currentTrack, handleOpenFolder]);
 
   const handlePrev = useCallback(() => {
     if (playlist.length > 1) loadAtRef.current(plIndex - 1);
@@ -276,6 +264,22 @@ export default function App() {
     },
     [duration],
   );
+
+  const handleSeekSecs = useCallback(
+    (secs: number) => {
+      if (!duration) return;
+      const clamped = Math.max(0, Math.min(duration, secs));
+      api.seek(clamped).catch((e) => setError(`${e}`));
+      setPosition(clamped);
+      setSeekValue(Math.floor((clamped / duration) * 1000));
+    },
+    [duration],
+  );
+
+  const handleToggleView = useCallback(() => {
+    userPickedViewRef.current = true;
+    setView((v) => (v === "spectrum" ? "lyrics" : "spectrum"));
+  }, []);
 
   const handleVolume = useCallback((v: number) => {
     setVolume(v);
@@ -346,13 +350,13 @@ export default function App() {
             )}
           </div>
         )}
-        <button className="top-btn" onClick={handleOpenFiles}>
-          <Icon name="file-music" size={14} />
-          <span>文件</span>
-        </button>
-        <button className="top-btn" onClick={handleOpenFolder}>
+        <button
+          className="top-btn"
+          onClick={handleOpenFolder}
+          title="选择专辑文件夹（自动加载音频、封面、歌词）"
+        >
           <Icon name="folder-open" size={14} />
-          <span>文件夹</span>
+          <span>打开专辑</span>
         </button>
       </div>
 
@@ -374,10 +378,48 @@ export default function App() {
 
         <div id="spectrum-area">
           <div id="spec-wrap">
-            <SpectrumGL bars={bars} active={playing} />
-            <div className="spec-grid-line" style={{ top: "25%" }} />
-            <div className="spec-grid-line" style={{ top: "50%" }} />
-            <div className="spec-grid-line" style={{ top: "75%" }} />
+            {view === "spectrum" ? (
+              <>
+                <SpectrumGL bars={bars} active={playing} />
+                <div className="spec-grid-line" style={{ top: "25%" }} />
+                <div className="spec-grid-line" style={{ top: "50%" }} />
+                <div className="spec-grid-line" style={{ top: "75%" }} />
+              </>
+            ) : (
+              <LyricsView
+                lyrics={lyrics}
+                positionSecs={position}
+                onSeek={handleSeekSecs}
+              />
+            )}
+            {lyrics.length > 0 && (
+              <button
+                className="view-toggle"
+                onClick={handleToggleView}
+                title={view === "spectrum" ? "切换到歌词" : "切换到频谱"}
+              >
+                <span className={view === "spectrum" ? "active" : ""}>频谱</span>
+                <span className="sep">·</span>
+                <span className={view === "lyrics" ? "active" : ""}>歌词</span>
+              </button>
+            )}
+            {!currentTrack && !loadProgress && (
+              <button
+                type="button"
+                className="empty-hint"
+                onClick={handleOpenFolder}
+                title="选择专辑文件夹（自动加载音频、封面、歌词）"
+              >
+                <div className="empty-hint-title">按专辑播放</div>
+                <div className="empty-hint-sub">
+                  选择一个文件夹 · 自动识别音频、封面与歌词
+                </div>
+                <div className="empty-hint-cta">
+                  <Icon name="folder-open" size={14} />
+                  <span>打开专辑</span>
+                </div>
+              </button>
+            )}
           </div>
         </div>
 

@@ -279,6 +279,166 @@ button > * {
   pointer-events: none;
 }
 
+/* ── VIEW TOGGLE (top-right of #spec-wrap) ───────────────────────── */
+.view-toggle {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(61, 47, 36, 0.78);
+  border: 0.5px solid rgba(138, 121, 88, 0.55);
+  border-radius: 14px;
+  padding: 4px 12px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 1.2px;
+  color: var(--text-light);
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  transition: background 0.12s, border-color 0.12s;
+}
+.view-toggle:hover {
+  background: rgba(61, 47, 36, 0.92);
+  border-color: var(--accent);
+}
+.view-toggle .sep {
+  color: var(--text-mid);
+  opacity: 0.6;
+}
+.view-toggle span.active {
+  color: var(--accent);
+}
+
+/* ── LYRICS PANEL ────────────────────────────────────────────────── */
+.lyrics-wrap {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  /* Soft top/bottom fade so lines scroll in/out smoothly. */
+  -webkit-mask-image: linear-gradient(
+    180deg,
+    transparent 0%,
+    #000 18%,
+    #000 82%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    180deg,
+    transparent 0%,
+    #000 18%,
+    #000 82%,
+    transparent 100%
+  );
+}
+.lyrics-list {
+  will-change: transform;
+  transition: transform 0.45s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+.lyrics-line {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 0 18px;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  letter-spacing: 0.6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: color 0.25s, opacity 0.25s, font-size 0.25s, font-weight 0.25s;
+  color: var(--text-mid);
+}
+.lyrics-line:hover {
+  color: var(--accent);
+}
+.lyrics-line.active {
+  color: var(--accent2);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  opacity: 1;
+}
+.lyrics-line.near {
+  color: var(--text-dark);
+  opacity: 0.75;
+}
+.lyrics-line.far {
+  opacity: 0.45;
+}
+.lyrics-line.distant {
+  opacity: 0.22;
+}
+.lyrics-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 2px;
+  color: var(--text-mid);
+}
+
+/* ── EMPTY-STATE HINT (no album loaded) ──────────────────────────── */
+.empty-hint {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: transparent;
+  border: none;
+  padding: 24px;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  text-align: center;
+  color: var(--text-mid);
+  transition: color 0.15s;
+}
+.empty-hint:hover {
+  color: var(--text-dark);
+}
+.empty-hint-title {
+  font-size: 16px;
+  letter-spacing: 4px;
+  color: var(--text-dark);
+}
+.empty-hint-sub {
+  font-size: 11px;
+  letter-spacing: 1.5px;
+  opacity: 0.75;
+}
+.empty-hint-cta {
+  margin-top: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 18px;
+  border: 0.8px solid var(--accent2);
+  border-radius: 20px;
+  color: var(--accent2);
+  font-size: 12px;
+  letter-spacing: 1.5px;
+  background: rgba(201, 123, 90, 0.08);
+  transition: background 0.15s, color 0.15s;
+}
+.empty-hint:hover .empty-hint-cta {
+  background: var(--accent2);
+  color: var(--text-bright);
+}
+
 /* ── LOADING OVERLAY ─────────────────────────────────────────────── */
 #loading-overlay {
   display: none;

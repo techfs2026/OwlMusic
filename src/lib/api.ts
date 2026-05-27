@@ -40,6 +40,11 @@ export interface SpectrumConfig {
   sample_rate: number;
 }
 
+export interface LyricLine {
+  time_secs: number;
+  text: string;
+}
+
 export const api = {
   openFile: (path: string) => invoke<TrackInfo>("open_file", { path }),
   play: () => invoke<void>("play"),
@@ -52,6 +57,7 @@ export const api = {
   getSpectrum: () => invoke<number[]>("get_spectrum"),
   scanFolder: (path: string) =>
     invoke<ScannedTrack[]>("scan_folder", { path }),
+  readLyrics: (path: string) => invoke<LyricLine[]>("read_lyrics", { path }),
   getSpectrumConfig(): Promise<SpectrumConfig> {
     return invoke("get_spectrum_config");
   },

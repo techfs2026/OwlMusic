@@ -1,4 +1,5 @@
 use crate::audio::spectrum::SPECTRUM_BARS;
+use crate::metadata::lyrics::{read_lyrics as read_lyrics_impl, LyricLine};
 use crate::metadata::reader::{read_metadata, read_tags_light, TrackMetadata};
 use crate::AppState;
 use serde::Serialize;
@@ -171,6 +172,14 @@ pub struct SpectrumConfig {
     pub f_min_hz: f32,
     pub f_max_hz: f32,  // 实际是当前曲目的 nyquist
     pub sample_rate: u32,
+}
+
+/// Look for a sibling `.lrc` file next to the audio file and return its parsed
+/// timestamped lines. Empty vec = no lyrics (frontend falls back to spectrum).
+#[tauri::command]
+pub async fn read_lyrics(path: String) -> Result<Vec<LyricLine>, String> {
+    let p = Path::new(&path).to_path_buf();
+    Ok(read_lyrics_impl(&p))
 }
 
 #[tauri::command]
