@@ -88,21 +88,27 @@ export default function SpectrumGL({ bars, active }: Props) {
       }
     `;
 
-    // Warm cassette palette: low-band brown -> mid amber -> top orange.
-    // Match muse_player.html ambient hues: rgb(120+t*90, 85+t*35, 60+t*30) at ~50% alpha.
+    // Deeper tape-tone palette so bars read solidly on the cream wrap:
+    // low → #6b5a3e, mid → #b88a5c, high → #b86b4a. Saturated peak cap
+    // (warm orange, not white) at the top of tall bars.
     const fs = `
       precision mediump float;
       varying float v_h;
       varying float v_t;
       varying float v_y;
       void main() {
-        float r = (120.0 + v_t * 90.0) / 255.0;
-        float g = (85.0  + v_t * 35.0) / 255.0;
-        float b = (60.0  + v_t * 30.0) / 255.0;
-        // Brighten the top edge to suggest a peak cap.
-        float topGlow = smoothstep(0.85, 1.0, v_y) * 0.35;
-        vec3 col = vec3(r + topGlow, g + topGlow * 0.7, b + topGlow * 0.5);
-        float alpha = 0.55 + v_h * 0.38;
+        vec3 c0 = vec3(122.0,  74.0,  48.0) / 255.0; // #7a4a30 — deep orange
+        vec3 c1 = vec3(160.0,  90.0,  58.0) / 255.0; // #a05a3a — mid orange
+        vec3 c2 = vec3(184.0, 107.0,  74.0) / 255.0; // #b86b4a — warm orange
+        vec3 col = v_t < 0.5
+          ? mix(c0, c1, v_t * 2.0)
+          : mix(c1, c2, (v_t - 0.5) * 2.0);
+        // Peak cap: at the very top, lean toward saturated accent2 — warm,
+        // not white. Strength scales with bar height so quiet bars stay flat.
+        float cap = smoothstep(0.88, 1.0, v_y) * v_h * 0.35;
+        vec3 capCol = vec3(201.0, 123.0, 90.0) / 255.0; // #c97b5a
+        col = mix(col, capCol, cap);
+        float alpha = 0.82 + v_h * 0.16;
         gl_FragColor = vec4(col, alpha);
       }
     `;

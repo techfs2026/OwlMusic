@@ -40,12 +40,6 @@ export default function App() {
   const [bars, setBars] = useState<number[]>(() => new Array(48).fill(0));
   const [error, setError] = useState<string | null>(null);
 
-  const [specCfg, setSpecCfg] = useState<{
-    bars: number;
-    fMin: number;
-    fMax: number;
-  } | null>(null);
-
   const [loadProgress, setLoadProgress] = useState<{
     cur: number;
     tot: number;
@@ -91,27 +85,10 @@ export default function App() {
     return Math.min(1, sum / bars.length);
   }, [bars]);
 
-  // Real dB readout: backend maps -90..0 dBFS into bars[i] in [0,1].
-  // We take the peak bar as the loudest band, convert back to dB.
-  const dbReadout = useMemo(() => {
-    if (!playing) return "PEAK — dB";
-    let peak = 0;
-    for (const b of bars) if (b > peak) peak = b;
-    if (peak < 0.01) return "PEAK −∞ dB";
-    const db = -90 + peak * 90; // inverse of backend map
-    return `PEAK ${db.toFixed(0)} dB`;
-  }, [bars, playing]);
-
   // ── Track loading (ref-stored so closures over playlist stay fresh) ──────
   const loadAtRef = useRef<(idx: number, list?: PlaylistItem[]) => Promise<void>>(
     async () => { },
   );
-  useEffect(() => {
-    if (!currentTrack) return;
-    api.getSpectrumConfig().then((c) =>
-      setSpecCfg({ bars: c.bars, fMin: c.f_min_hz, fMax: c.f_max_hz })
-    ).catch(() => { });
-  }, [currentTrack]);
   useEffect(() => {
     loadAtRef.current = async (idx: number, list?: PlaylistItem[]) => {
       const useList = list ?? playlist;
@@ -305,9 +282,6 @@ export default function App() {
     api.setVolume(v).catch(() => { });
   }, []);
 
-  const fmtHz = (hz: number) =>
-    hz >= 1000 ? `${(hz / 1000).toFixed(hz >= 10000 ? 0 : 1)}kHz` : `${Math.round(hz)}Hz`;
-
   // Close the playlist dropdown when clicking outside of it.
   useEffect(() => {
     if (!showPlaylist) return;
@@ -394,18 +368,11 @@ export default function App() {
           bitsPerSample={format?.sourceBits ?? null}
           channelCount={format?.sourceCh ?? 0}
           durationSecs={duration}
+          positionSecs={position}
           bitPerfect={format?.bitPerfect ?? null}
         />
 
         <div id="spectrum-area">
-          <div id="spec-header">
-            <span>
-              SPECTRUM · {specCfg?.bars ?? bars.length} BANDS · {
-                specCfg ? `${fmtHz(specCfg.fMin)} – ${fmtHz(specCfg.fMax)}` : "—"
-              }
-            </span>
-            <span>{dbReadout}</span>
-          </div>
           <div id="spec-wrap">
             <SpectrumGL bars={bars} active={playing} />
             <div className="spec-grid-line" style={{ top: "25%" }} />
@@ -466,6 +433,7 @@ export default function App() {
             max={1000}
             step={1}
             value={seekValue}
+            style={{ "--val": seekValue / 10 } as React.CSSProperties}
             onMouseDown={() => (seekDragRef.current = true)}
             onTouchStart={() => (seekDragRef.current = true)}
             onMouseUp={() => (seekDragRef.current = false)}
@@ -486,6 +454,7 @@ export default function App() {
               max={100}
               step={1}
               value={Math.round(volume * 100)}
+              style={{ "--val": Math.round(volume * 100) } as React.CSSProperties}
               onChange={(e) => handleVolume(Number(e.target.value) / 100)}
             />
           </div>
