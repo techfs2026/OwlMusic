@@ -37,17 +37,38 @@ pub struct ScannedTrack {
     pub name: String,
     pub title: Option<String>,
     pub artist: Option<String>,
+    /// CUE track start within the file, in seconds. `None` for a whole file.
+    pub start_secs: Option<f64>,
+    /// CUE track end within the file, in seconds. `None` = play to EOF (whole
+    /// file, or the last track on a CUE sheet).
+    pub end_secs: Option<f64>,
 }
 
+/// Open a track. For CUE tracks, `start_secs`/`end_secs` restrict playback to a
+/// slice of the file, and `title`/`artist` override the (album-level) tags read
+/// from the underlying WAV/FLAC since one container holds many tracks.
 #[tauri::command]
-pub async fn open_file(path: String, state: State<'_, AppState>) -> Result<TrackInfo, String> {
+pub async fn open_file(
+    path: String,
+    start_secs: Option<f64>,
+    end_secs: Option<f64>,
+    title: Option<String>,
+    artist: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<TrackInfo, String> {
     let path = Path::new(&path).to_path_buf();
     // Metadata read soft-fails internally now, but keep a fallback here too in case
     // the API ever propagates again.
-    let metadata = read_metadata(&path).unwrap_or_default();
+    let mut metadata = read_metadata(&path).unwrap_or_default();
+    if title.is_some() {
+        metadata.title = title;
+    }
+    if artist.is_some() {
+        metadata.artist = artist;
+    }
     let mut player = state.player.lock();
     player
-        .load_and_play(&path)
+        .load_and_play(&path, start_secs, end_secs)
         .map_err(|e| format!("Load error: {}", e))?;
     Ok(TrackInfo {
         metadata,
@@ -123,7 +144,8 @@ pub async fn scan_folder(path: String) -> Result<Vec<ScannedTrack>, String> {
         return Err(format!("Not a directory: {}", path));
     }
 
-    let mut out: Vec<ScannedTrack> = Vec::new();
+    let mut audio_files: Vec<PathBuf> = Vec::new();
+    let mut cue_files: Vec<PathBuf> = Vec::new();
     let mut stack: Vec<PathBuf> = vec![root];
 
     while let Some(dir) = stack.pop() {
@@ -140,31 +162,89 @@ pub async fn scan_folder(path: String) -> Result<Vec<ScannedTrack>, String> {
                 stack.push(p);
                 continue;
             }
-            let name = match p.file_name().and_then(|n| n.to_str()) {
-                Some(n) if !n.starts_with("._") && !n.starts_with('.') => n.to_string(),
+            match p.file_name().and_then(|n| n.to_str()) {
+                Some(n) if !n.starts_with("._") && !n.starts_with('.') => {}
                 _ => continue,
-            };
-            let ext_ok = p
+            }
+            let ext = p
                 .extension()
                 .and_then(|e| e.to_str())
-                .map(|e| AUDIO_EXTS.iter().any(|x| x.eq_ignore_ascii_case(e)))
-                .unwrap_or(false);
-            if !ext_ok {
+                .map(|e| e.to_ascii_lowercase());
+            match ext.as_deref() {
+                Some("cue") => cue_files.push(p),
+                Some(e) if AUDIO_EXTS.contains(&e) => audio_files.push(p),
+                _ => {}
+            }
+        }
+    }
+
+    // Each entry carries a sort key: tracks group by their source file path, and
+    // within a CUE sheet they order by track number. Whole files use track_no 0.
+    let mut entries: Vec<(String, u32, ScannedTrack)> = Vec::new();
+    // Audio files referenced by a CUE sheet are not listed standalone.
+    let mut referenced: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    for cue in &cue_files {
+        let sheet = match crate::metadata::cue::parse_cue(cue) {
+            Ok(s) => s,
+            Err(e) => {
+                log::warn!("CUE parse failed for {:?}: {}", cue, e);
                 continue;
             }
-            let (title, artist) = read_tags_light(&p);
-            let path_str = p.to_string_lossy().to_string();
-            out.push(ScannedTrack {
+        };
+        let audio_path_str = sheet.audio_path.to_string_lossy().to_string();
+        referenced.insert(audio_path_str.to_ascii_lowercase());
+        let sort_base = audio_path_str.to_ascii_lowercase();
+        for t in &sheet.tracks {
+            let title = t.title.clone().or_else(|| sheet.album.clone());
+            let artist = t.performer.clone().or_else(|| sheet.album_performer.clone());
+            let name = format!(
+                "{:02}. {}",
+                t.number,
+                title.clone().unwrap_or_else(|| format!("Track {}", t.number))
+            );
+            entries.push((
+                sort_base.clone(),
+                t.number,
+                ScannedTrack {
+                    path: audio_path_str.clone(),
+                    name,
+                    title,
+                    artist,
+                    start_secs: Some(t.start_secs),
+                    end_secs: t.end_secs,
+                },
+            ));
+        }
+    }
+
+    for p in &audio_files {
+        let path_str = p.to_string_lossy().to_string();
+        if referenced.contains(&path_str.to_ascii_lowercase()) {
+            continue;
+        }
+        let name = p
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_default()
+            .to_string();
+        let (title, artist) = read_tags_light(p);
+        entries.push((
+            path_str.to_ascii_lowercase(),
+            0,
+            ScannedTrack {
                 path: path_str,
                 name,
                 title,
                 artist,
-            });
-        }
+                start_secs: None,
+                end_secs: None,
+            },
+        ));
     }
 
-    out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-    Ok(out)
+    entries.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
+    Ok(entries.into_iter().map(|(_, _, t)| t).collect())
 }
 
 #[derive(Serialize)]

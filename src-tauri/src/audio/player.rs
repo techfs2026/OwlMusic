@@ -289,10 +289,15 @@ impl AudioPlayer {
     /// Load a file, pre-buffer, then start playback (decode continues in a background thread).
     // player.rs — 只替换这两个函数，其余不变
 
-    pub fn load_and_play(&mut self, path: &std::path::Path) -> Result<()> {
+    pub fn load_and_play(
+        &mut self,
+        path: &std::path::Path,
+        start_secs: Option<f64>,
+        end_secs: Option<f64>,
+    ) -> Result<()> {
         self.stop();
 
-        let source = StreamSource::open(path)?;
+        let source = StreamSource::open_clip(path, start_secs, end_secs)?;
         let source_sr = source.sample_rate;
         let source_ch = source.channels as usize;
         let source_bits = source.bits_per_sample;

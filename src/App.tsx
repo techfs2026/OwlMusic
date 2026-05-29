@@ -22,6 +22,10 @@ interface PlaylistItem {
   title: string;
   /** Artist: tag value if known, else parsed; null when neither source has one. */
   artist: string | null;
+  /** CUE track start within the file (secs); null for a standalone file. */
+  startSecs: number | null;
+  /** CUE track end within the file (secs); null = play to EOF. */
+  endSecs: number | null;
 }
 
 const STATE_POLL_MS = 200;
@@ -116,7 +120,16 @@ export default function App() {
       const t = useList[safe];
       setError(null);
       try {
-        const info: TrackInfo = await api.openFile(t.path);
+        // For CUE tracks, hand the sheet's title/artist to the backend so they
+        // override the album-level tags embedded in the shared WAV/FLAC.
+        const isCue = t.startSecs != null;
+        const info: TrackInfo = await api.openFile(
+          t.path,
+          t.startSecs,
+          t.endSecs,
+          isCue ? t.title : null,
+          isCue ? t.artist : null,
+        );
         setMetadata(info.metadata);
         setDuration(info.duration_secs);
         setFormat({
@@ -202,14 +215,21 @@ export default function App() {
         return;
       }
       const items: PlaylistItem[] = tracks.map((t) => {
-        const parsed = parseName(t.name);
+        const isCue = t.start_secs != null;
         const tagTitle = t.title?.trim();
         const tagArtist = t.artist?.trim();
+        // CUE tracks carry their title/artist from the sheet — don't re-parse
+        // the (shared) WAV filename, which would be identical for every track.
+        const parsed = isCue
+          ? { title: t.name, artist: null as string | null }
+          : parseName(t.name);
         return {
           path: t.path,
           name: t.name,
           title: tagTitle || parsed.title,
           artist: tagArtist || parsed.artist,
+          startSecs: t.start_secs,
+          endSecs: t.end_secs,
         };
       });
       const total = items.length;
@@ -431,7 +451,11 @@ export default function App() {
           durationSecs={duration}
           positionSecs={position}
           bitPerfect={format?.bitPerfect ?? null}
-          onEdit={currentTrack ? () => setEditorOpen(true) : undefined}
+          onEdit={
+            currentTrack && currentTrack.startSecs == null
+              ? () => setEditorOpen(true)
+              : undefined
+          }
         />
 
         <div id="spectrum-area">

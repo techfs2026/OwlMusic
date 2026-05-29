@@ -23,10 +23,19 @@ pub struct StreamSource {
     /// Original sample bit depth (e.g. 16 / 24 / 32 for PCM/FLAC). `None` if
     /// the demuxer didn't carry it (some lossy codecs).
     pub bits_per_sample: Option<u32>,
+    /// Start of the playable region within the file, in seconds. 0 for a whole
+    /// file; >0 for a CUE track that begins partway through a big WAV/FLAC.
+    clip_start_secs: f64,
+    /// End of the playable region as an absolute *frame* index (1/sample_rate
+    /// units). `None` = play to end of file. Used to stop a CUE track exactly at
+    /// the next track's boundary.
+    clip_end_frame: Option<u64>,
 }
 
 impl StreamSource {
-    pub fn open(path: &Path) -> Result<Self> {
+    /// Open a file, optionally restricted to a `[start_secs, end_secs)` slice
+    /// (CUE track). With both `None` it plays the whole file.
+    pub fn open_clip(path: &Path, start_secs: Option<f64>, end_secs: Option<f64>) -> Result<Self> {
         let file = File::open(path)?;
         let mss = MediaSourceStream::new(Box::new(file), Default::default());
 
@@ -60,7 +69,7 @@ impl StreamSource {
             .unwrap_or(2);
         let bits_per_sample = track.codec_params.bits_per_sample;
 
-        let duration_secs = if let (Some(n_frames), Some(tb)) =
+        let full_duration_secs = if let (Some(n_frames), Some(tb)) =
             (track.codec_params.n_frames, track.codec_params.time_base)
         {
             n_frames as f64 * tb.numer as f64 / tb.denom as f64
@@ -68,12 +77,22 @@ impl StreamSource {
             0.0
         };
 
+        // Clamp the clip window to the file and translate the end into an
+        // absolute frame index so the decode loop can stop precisely.
+        let clip_start_secs = start_secs.unwrap_or(0.0).max(0.0);
+        let duration_secs = match end_secs {
+            Some(end) => (end - clip_start_secs).max(0.0),
+            None if full_duration_secs > 0.0 => (full_duration_secs - clip_start_secs).max(0.0),
+            None => 0.0,
+        };
+        let clip_end_frame = end_secs.map(|end| (end * sample_rate as f64).round() as u64);
+
         let dec_opts = DecoderOptions::default();
         let decoder = symphonia::default::get_codecs()
             .make(&track.codec_params, &dec_opts)
             .map_err(|e| anyhow!("Decoder error: {e}"))?;
 
-        Ok(Self {
+        let mut source = Self {
             format,
             decoder,
             track_id,
@@ -82,11 +101,22 @@ impl StreamSource {
             channels,
             duration_secs,
             bits_per_sample,
-        })
+            clip_start_secs,
+            clip_end_frame,
+        };
+
+        // Jump to the start of the clip before the decode thread reads anything.
+        if clip_start_secs > 0.0 {
+            source.seek_to_secs(0.0)?;
+        }
+
+        Ok(source)
     }
 
+    /// Seek to `secs` measured *within the clip* (0 = start of the playable
+    /// region). For a whole file `clip_start_secs` is 0 so this is a plain seek.
     pub fn seek_to_secs(&mut self, secs: f64) -> Result<()> {
-        let time = Time::from(secs);
+        let time = Time::from(self.clip_start_secs + secs);
         self.format.seek(
             SeekMode::Accurate,
             SeekTo::Time {
@@ -115,12 +145,21 @@ impl StreamSource {
                 continue;
             }
 
+            // Clip end: once a packet starts at or past the boundary we're done.
+            // The packet timestamp is in frames (1/sample_rate units).
+            let packet_ts = packet.ts();
+            if let Some(end) = self.clip_end_frame {
+                if packet_ts >= end {
+                    return Ok(false);
+                }
+            }
+
             match self.decoder.decode(&packet) {
                 Ok(audio_buf) => {
                     let spec = *audio_buf.spec();
+                    let ch = spec.channels.count();
                     let duration = audio_buf.capacity() as u64;
-                    let required =
-                        (duration * spec.channels.count() as u64) as usize;
+                    let required = (duration * ch as u64) as usize;
                     match &self.sample_buf {
                         Some(buf) if buf.capacity() == required => {}
                         _ => {
@@ -129,7 +168,21 @@ impl StreamSource {
                     }
                     let buf = self.sample_buf.as_mut().expect("sample buffer");
                     buf.copy_interleaved_ref(audio_buf);
-                    out.extend_from_slice(buf.samples());
+                    let samples = buf.samples();
+
+                    // Trim the boundary packet so a CUE track never bleeds audio
+                    // into the next one.
+                    if let Some(end) = self.clip_end_frame {
+                        let frames = if ch > 0 { samples.len() / ch } else { 0 };
+                        if packet_ts + frames as u64 > end {
+                            let keep_frames = (end - packet_ts) as usize;
+                            let keep = (keep_frames * ch).min(samples.len());
+                            out.extend_from_slice(&samples[..keep]);
+                            return Ok(true);
+                        }
+                    }
+
+                    out.extend_from_slice(samples);
                     return Ok(true);
                 }
                 Err(SymphoniaError::DecodeError(_)) => continue,

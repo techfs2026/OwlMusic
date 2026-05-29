@@ -31,6 +31,10 @@ export interface ScannedTrack {
   name: string;
   title: string | null;
   artist: string | null;
+  /** CUE track start within the file, in seconds. null for a whole file. */
+  start_secs: number | null;
+  /** CUE track end within the file, in seconds. null = play to EOF. */
+  end_secs: number | null;
 }
 
 export interface SpectrumConfig {
@@ -57,7 +61,14 @@ export interface MetadataEdit {
 }
 
 export const api = {
-  openFile: (path: string) => invoke<TrackInfo>("open_file", { path }),
+  openFile: (
+    path: string,
+    startSecs?: number | null,
+    endSecs?: number | null,
+    title?: string | null,
+    artist?: string | null,
+  ) =>
+    invoke<TrackInfo>("open_file", { path, startSecs, endSecs, title, artist }),
   play: () => invoke<void>("play"),
   pause: () => invoke<void>("pause"),
   stop: () => invoke<void>("stop"),
