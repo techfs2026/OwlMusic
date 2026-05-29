@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { fmtChannels, fmtSampleRateKHz, fmtTime, trim } from "../lib/utils";
 
 interface Props {
@@ -21,6 +21,8 @@ interface Props {
   positionSecs: number;
   /** Whether playback is going to the device at the source's native rate/channels. null = no track. */
   bitPerfect: boolean | null;
+  /** When provided, renders a metadata-edit button in the stage's bottom-left corner. */
+  onEdit?: () => void;
 }
 
 /**
@@ -46,9 +48,19 @@ export default function Cassette({
   durationSecs,
   positionSecs,
   bitPerfect,
+  onEdit,
 }: Props) {
   const reelLRef = useRef<SVGGElement>(null);
   const reelRRef = useRef<SVGGElement>(null);
+
+  // Measure the rendered title so the edit pencil can hug its right edge
+  // regardless of title length (the title is center-anchored). getBBox returns
+  // viewBox-space units, so it's immune to the SVG's CSS scaling.
+  const titleRef = useRef<SVGTextElement>(null);
+  const [titleBox, setTitleBox] = useState<{ x: number; w: number }>({
+    x: 510,
+    w: 180,
+  });
   const angleRef = useRef(0);
   const energyRef = useRef(0);
   const lastTimeRef = useRef(performance.now());
@@ -56,6 +68,13 @@ export default function Cassette({
   useEffect(() => {
     energyRef.current = energy;
   }, [energy]);
+
+  const safeTitle = title ? trim(title, 32).toUpperCase() : "— —";
+  useEffect(() => {
+    if (!titleRef.current) return;
+    const bb = titleRef.current.getBBox();
+    setTitleBox({ x: bb.x, w: bb.width });
+  }, [safeTitle]);
 
   useEffect(() => {
     let raf = 0;
@@ -76,7 +95,6 @@ export default function Cassette({
   }, [playing]);
 
   const ledColor = playing ? "#c97b5a" : "#5a4838";
-  const safeTitle = title ? trim(title, 40).toUpperCase() : "— —";
   const safeArtist = artist ? trim(artist, 56).toUpperCase() : "NO SIGNAL";
 
   // Real format readouts replace the iconic-but-fake "HIGH BIAS · 90" /
@@ -496,21 +514,56 @@ export default function Cassette({
             {modeLabel}
           </text>
 
-          {/* Title — centered within the text zone */}
-          <text
-            x="600"
-            y="156"
-            textAnchor="middle"
-            fill="#2a1f17"
-            style={{
-              fontSize: 26,
-              fontWeight: 600,
-              letterSpacing: "1.4px",
-              fontFamily: "var(--font-mono)",
-            }}
+          {/* Title — centered within the text zone. When editable, the whole
+              title block is a click target with a pencil cue at its top-right. */}
+          <g
+            className={onEdit ? "cassette-title-group" : undefined}
+            onClick={onEdit}
+            style={onEdit ? { cursor: "pointer" } : undefined}
           >
-            {safeTitle}
-          </text>
+            {/* Generous transparent hit area spanning the title + pencil. */}
+            {onEdit && (
+              <rect
+                x={titleBox.x - 14}
+                y="126"
+                width={titleBox.w + 70}
+                height="52"
+                fill="transparent"
+              >
+                <title>编辑元数据（标题 / 艺术家 / 专辑 / 封面）</title>
+              </rect>
+            )}
+            <text
+              ref={titleRef}
+              className="cassette-title-text"
+              x="600"
+              y="158"
+              textAnchor="middle"
+              fill="#2a1f17"
+              style={{
+                fontSize: 32,
+                fontWeight: 600,
+                letterSpacing: "1.4px",
+                fontFamily: "var(--font-mono)",
+              }}
+            >
+              {safeTitle}
+            </text>
+            {onEdit && (
+              <g
+                className="cassette-title-pencil"
+                transform={`translate(${titleBox.x + titleBox.w + 12} 132) scale(1)`}
+                fill="none"
+                stroke="#8a7958"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M4 20h4l10.5 -10.5a1.5 1.5 0 0 0 -4 -4l-10.5 10.5v4" />
+                <path d="M13.5 6.5l4 4" />
+              </g>
+            )}
+          </g>
 
           {/* Divider line under title (narrowed to the text zone) */}
           <line

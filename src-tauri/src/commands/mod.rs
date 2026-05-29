@@ -1,6 +1,7 @@
 use crate::audio::spectrum::SPECTRUM_BARS;
 use crate::metadata::lyrics::{read_lyrics as read_lyrics_impl, LyricLine};
 use crate::metadata::reader::{read_metadata, read_tags_light, TrackMetadata};
+use crate::metadata::writer::{write_metadata as write_metadata_impl, MetadataEdit};
 use crate::AppState;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -180,6 +181,16 @@ pub struct SpectrumConfig {
 pub async fn read_lyrics(path: String) -> Result<Vec<LyricLine>, String> {
     let p = Path::new(&path).to_path_buf();
     Ok(read_lyrics_impl(&p))
+}
+
+/// Write edited tag metadata (title/artist/album + cover) back to the file and
+/// return the freshly re-read metadata. The frontend must stop playback of the
+/// target file before calling this if it's the currently-loaded track, since a
+/// rewrite races with the streaming decoder's open file handle.
+#[tauri::command]
+pub async fn write_metadata(path: String, edit: MetadataEdit) -> Result<TrackMetadata, String> {
+    let p = Path::new(&path).to_path_buf();
+    write_metadata_impl(&p, &edit).map_err(|e| format!("{}", e))
 }
 
 #[tauri::command]

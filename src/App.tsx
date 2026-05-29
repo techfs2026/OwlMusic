@@ -3,8 +3,16 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import Cassette from "./components/Cassette";
 import SpectrumGL from "./components/SpectrumGL";
 import LyricsView from "./components/LyricsView";
+import MetadataEditor from "./components/MetadataEditor";
 import Icon from "./components/Icon";
-import { api, LyricLine, ScannedTrack, TrackInfo, TrackMetadata } from "./lib/api";
+import {
+  api,
+  LyricLine,
+  MetadataEdit,
+  ScannedTrack,
+  TrackInfo,
+  TrackMetadata,
+} from "./lib/api";
 import { fmtTime, parseName } from "./lib/utils";
 
 interface PlaylistItem {
@@ -48,6 +56,8 @@ export default function App() {
 
   const seekDragRef = useRef(false);
   const [seekValue, setSeekValue] = useState(0);
+
+  const [editorOpen, setEditorOpen] = useState(false);
 
   const [showPlaylist, setShowPlaylist] = useState(false);
   const playlistWrapRef = useRef<HTMLDivElement | null>(null);
@@ -281,6 +291,53 @@ export default function App() {
     setView((v) => (v === "spectrum" ? "lyrics" : "spectrum"));
   }, []);
 
+  // Persist tag edits for the current track. Because the player streams the
+  // file from disk, we must stop playback (which closes the decoder's file
+  // handle) before the rewrite, then reload to resume — restoring position and
+  // pause state as best we can. Re-throws so the editor can surface failures.
+  const handleSaveMetadata = useCallback(
+    async (edit: MetadataEdit) => {
+      const track = playlistRef.current[plIndexRef.current];
+      if (!track) return;
+      const savedPos = position;
+      const wasPlaying = playing;
+
+      const resume = async () => {
+        await loadAtRef.current(plIndexRef.current);
+        if (savedPos > 1) handleSeekSecs(savedPos);
+        if (!wasPlaying) {
+          await api.pause().catch(() => { });
+          setPlaying(false);
+        }
+      };
+
+      await api.stop().catch(() => { });
+      let newMeta: TrackMetadata;
+      try {
+        newMeta = await api.writeMetadata(track.path, edit);
+      } catch (e) {
+        await resume();
+        throw e;
+      }
+
+      // Keep the playlist row (dropdown + topbar) in sync with the new tags.
+      setPlaylist((pl) =>
+        pl.map((it, i) =>
+          i === plIndexRef.current
+            ? {
+              ...it,
+              title: newMeta.title?.trim() || it.title,
+              artist: newMeta.artist?.trim() || it.artist,
+            }
+            : it,
+        ),
+      );
+      setMetadata(newMeta);
+      await resume();
+    },
+    [position, playing, handleSeekSecs],
+  );
+
   const handleVolume = useCallback((v: number) => {
     setVolume(v);
     api.setVolume(v).catch(() => { });
@@ -374,51 +431,52 @@ export default function App() {
           durationSecs={duration}
           positionSecs={position}
           bitPerfect={format?.bitPerfect ?? null}
+          onEdit={currentTrack ? () => setEditorOpen(true) : undefined}
         />
 
         <div id="spectrum-area">
           <div id="spec-wrap">
-            {view === "spectrum" ? (
+            {/* Spectrum always shows for a loaded track. With lyrics, the
+                toggle lets you switch to the lyrics view; without lyrics, a
+                "无歌词" badge is shown instead of the toggle. */}
+            {currentTrack && (
               <>
-                <SpectrumGL bars={bars} active={playing} />
-                <div className="spec-grid-line" style={{ top: "25%" }} />
-                <div className="spec-grid-line" style={{ top: "50%" }} />
-                <div className="spec-grid-line" style={{ top: "75%" }} />
+                {view === "spectrum" || lyrics.length === 0 ? (
+                  <>
+                    <SpectrumGL bars={bars} active={playing} />
+                    <div className="spec-grid-line" style={{ top: "25%" }} />
+                    <div className="spec-grid-line" style={{ top: "50%" }} />
+                    <div className="spec-grid-line" style={{ top: "75%" }} />
+                  </>
+                ) : (
+                  <LyricsView
+                    lyrics={lyrics}
+                    positionSecs={position}
+                    onSeek={handleSeekSecs}
+                  />
+                )}
+                {lyrics.length > 0 ? (
+                  <button
+                    className="view-toggle"
+                    onClick={handleToggleView}
+                    title={view === "spectrum" ? "切换到歌词" : "切换到频谱"}
+                  >
+                    <span className={view === "spectrum" ? "active" : ""}>频谱</span>
+                    <span className="sep">·</span>
+                    <span className={view === "lyrics" ? "active" : ""}>歌词</span>
+                  </button>
+                ) : (
+                  <span className="view-toggle no-lyrics">无歌词</span>
+                )}
               </>
-            ) : (
-              <LyricsView
-                lyrics={lyrics}
-                positionSecs={position}
-                onSeek={handleSeekSecs}
-              />
-            )}
-            {lyrics.length > 0 && (
-              <button
-                className="view-toggle"
-                onClick={handleToggleView}
-                title={view === "spectrum" ? "切换到歌词" : "切换到频谱"}
-              >
-                <span className={view === "spectrum" ? "active" : ""}>频谱</span>
-                <span className="sep">·</span>
-                <span className={view === "lyrics" ? "active" : ""}>歌词</span>
-              </button>
             )}
             {!currentTrack && !loadProgress && (
-              <button
-                type="button"
-                className="empty-hint"
-                onClick={handleOpenFolder}
-                title="选择专辑文件夹（自动加载音频、封面、歌词）"
-              >
+              <div className="empty-hint">
                 <div className="empty-hint-title">按专辑播放</div>
                 <div className="empty-hint-sub">
                   选择一个文件夹 · 自动识别音频、封面与歌词
                 </div>
-                <div className="empty-hint-cta">
-                  <Icon name="folder-open" size={14} />
-                  <span>打开专辑</span>
-                </div>
-              </button>
+              </div>
             )}
           </div>
         </div>
@@ -506,6 +564,18 @@ export default function App() {
           {error ? `⚠ ${error}` : ""}
         </div>
       </div>
+
+      {editorOpen && currentTrack && (
+        <MetadataEditor
+          path={currentTrack.path}
+          metadata={metadata}
+          fallbackTitle={currentTrack.title}
+          fallbackArtist={currentTrack.artist ?? ""}
+          coverDataUrl={coverDataUrl}
+          onSave={handleSaveMetadata}
+          onClose={() => setEditorOpen(false)}
+        />
+      )}
     </div>
   );
 }

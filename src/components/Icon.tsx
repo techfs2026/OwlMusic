@@ -16,7 +16,8 @@ type IconName =
   | "volume-muted"
   | "file-music"
   | "folder-open"
-  | "chevron-down";
+  | "chevron-down"
+  | "info";
 
 interface Props {
   name: IconName;
@@ -73,6 +74,13 @@ const ICON_PATHS: Record<IconName, JSX.Element> = {
   ),
   "chevron-down": (
     <path d="M6 9l6 6l6 -6" />
+  ),
+  info: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <line x1="12" y1="8" x2="12.01" y2="8" />
+      <polyline points="11 12 12 12 12 16 13 16" />
+    </>
   ),
 };
 

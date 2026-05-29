@@ -38,6 +38,7 @@ pub fn run() {
             commands::get_spectrum,
             commands::scan_folder,
             commands::read_lyrics,
+            commands::write_metadata,
             commands::get_spectrum_config,
         ])
         .run(tauri::generate_context!())

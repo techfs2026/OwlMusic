@@ -45,6 +45,17 @@ export interface LyricLine {
   text: string;
 }
 
+/** One tag edit for a single track. Text fields are tri-state:
+ *  omit / undefined → leave unchanged, "" → clear, value → set. */
+export interface MetadataEdit {
+  title?: string;
+  artist?: string;
+  album?: string;
+  cover_action: "keep" | "replace" | "remove";
+  /** Filesystem path to an image; required when cover_action === "replace". */
+  cover_path?: string;
+}
+
 export const api = {
   openFile: (path: string) => invoke<TrackInfo>("open_file", { path }),
   play: () => invoke<void>("play"),
@@ -58,6 +69,8 @@ export const api = {
   scanFolder: (path: string) =>
     invoke<ScannedTrack[]>("scan_folder", { path }),
   readLyrics: (path: string) => invoke<LyricLine[]>("read_lyrics", { path }),
+  writeMetadata: (path: string, edit: MetadataEdit) =>
+    invoke<TrackMetadata>("write_metadata", { path, edit }),
   getSpectrumConfig(): Promise<SpectrumConfig> {
     return invoke("get_spectrum_config");
   },
