@@ -277,14 +277,6 @@ pub async fn scan_folder(path: String) -> Result<Vec<ScannedTrack>, String> {
     Ok(entries.into_iter().map(|(_, _, t)| t).collect())
 }
 
-#[derive(Serialize)]
-pub struct SpectrumConfig {
-    pub bars: usize,
-    pub f_min_hz: f32,
-    pub f_max_hz: f32,  // 实际是当前曲目的 nyquist
-    pub sample_rate: u32,
-}
-
 /// Look for a sibling `.lrc` file next to the audio file and return its parsed
 /// timestamped lines. Empty vec = no lyrics (frontend falls back to spectrum).
 #[tauri::command]
@@ -301,15 +293,4 @@ pub async fn read_lyrics(path: String) -> Result<Vec<LyricLine>, String> {
 pub async fn write_metadata(path: String, edit: MetadataEdit) -> Result<TrackMetadata, String> {
     let p = Path::new(&path).to_path_buf();
     write_metadata_impl(&p, &edit).map_err(|e| format!("{}", e))
-}
-
-#[tauri::command]
-pub fn get_spectrum_config(state: State<'_, AppState>) -> SpectrumConfig {
-    let sr = state.player.lock().sample_rate();
-    SpectrumConfig {
-        bars: crate::audio::spectrum::SPECTRUM_BARS,
-        f_min_hz: 40.0,
-        f_max_hz: (sr as f32 / 2.0),
-        sample_rate: sr,
-    }
 }

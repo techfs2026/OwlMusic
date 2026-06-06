@@ -39,13 +39,6 @@ export interface ScannedTrack {
   end_secs: number | null;
 }
 
-export interface SpectrumConfig {
-  bars: number;
-  f_min_hz: number;
-  f_max_hz: number;
-  sample_rate: number;
-}
-
 export interface LyricLine {
   time_secs: number;
   text: string;
@@ -84,7 +77,4 @@ export const api = {
   readLyrics: (path: string) => invoke<LyricLine[]>("read_lyrics", { path }),
   writeMetadata: (path: string, edit: MetadataEdit) =>
     invoke<TrackMetadata>("write_metadata", { path, edit }),
-  getSpectrumConfig(): Promise<SpectrumConfig> {
-    return invoke("get_spectrum_config");
-  },
 };

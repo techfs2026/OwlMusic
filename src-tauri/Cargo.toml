@@ -1,16 +1,16 @@
 [package]
-name = "MusicOwl"
+name = "OwlMusic"
 version = "0.1.0"
-description = "A retro MusicOwl with emotion-driven visuals"
+description = "A retro OwlMusic with emotion-driven visuals"
 authors = ["techfs"]
 edition = "2021"
 
 [lib]
-name = "music_owl_lib"
+name = "owl_music_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [[bin]]
-name = "MusicOwl"
+name = "OwlMusic"
 path = "src/main.rs"
 
 [build-dependencies]

@@ -343,7 +343,7 @@ export default function Cassette({
             fontFamily: "var(--font-mono)",
           }}
         >
-          MUSICOWL TAPE
+          TAPE
         </text>
         <circle cx="502" cy="38" r="4" fill={ledColor} />
         <text

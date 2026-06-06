@@ -451,7 +451,7 @@ export default function App() {
     <div id="app">
       {/* TOP BAR */}
       <div id="topbar">
-        <span className="brand">MusicOwl</span>
+        <span className="brand">OwlMusic</span>
         <span className="ver">v0.1</span>
         <div style={{ flex: 1 }} />
         {playlist.length > 0 && (
